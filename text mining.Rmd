@@ -11,7 +11,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # text mining in R
 
-## create corpus
+## create corpus from text documents 
+- for this demo I copied some wikipedia articles
 ```{r}
 library(tm)
 
@@ -62,7 +63,7 @@ stemming is a relatively crude process of simplification
 
 alternative
 - lemmatization that uses grammatical context & part of speech (POS) tagging
-```{r}
+```{r eval = FALSE}
 library(SnowballC)
 
 docs <- tm_map(docs,stemDocument)
@@ -154,9 +155,16 @@ synonyms("language","NOUN")
 ## sentiment analysis
 
 ```{r}
-library(tidytext)
+library(syuzhet)
 
+testtext<-c("good","bad","ugly","normal")
+doctext <- c(strsplit(as.character(docs[[1]])," "))[[1]]
 
+syuzhet_vector <- get_sentiment(doctext, method="syuzhet")
+
+head(syuzhet_vector)
+
+summary(syuzhet_vector)
 
 ```
 
