@@ -1,0 +1,167 @@
+---
+title: "text mining"
+author: "Tijs Van den Heuvel"
+date: "10/11/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# text mining in R
+
+## create corpus
+```{r}
+library(tm)
+
+docs <- Corpus(DirSource("/Users/tijsvandenheuvel/code_repositys/ML/textdata"))
+docs
+```
+
+#inspect a particular document
+```{r eval=FALSE}
+writeLines(as.character(docs[[1]]))
+```
+
+# data cleaning
+- remove punctuation & non word characters
+- remove numbers
+- create transformer to remove non standard punctuation
+- Transform to lower case
+- remove stopwords using the standard list in tm
+- remove own stopwords
+- Strip extra whitespace caused by other operations
+```{r}
+docs <- tm_map(docs, removePunctuation)
+docs <- tm_map(docs, removeNumbers)
+
+removeChar <- content_transformer(function(x, pattern) {return (gsub(pattern," ", x))})
+
+docs <- tm_map(docs, removeChar,"–")
+docs <- tm_map(docs, removeChar,"—")
+
+docs <- tm_map(docs,content_transformer(tolower))
+
+docs <- tm_map(docs, removeWords, stopwords("english"))
+
+mystopwords <- c("also","many","used","uses","often","can","one","may","use")
+docs <- tm_map(docs,removeWords,mystopwords)
+
+docs <- tm_map(docs, stripWhitespace)
+```
+
+#inspect a particular document
+```{r eval=FALSE}
+writeLines(as.character(docs[[1]]))
+```
+
+## Stemming
+
+stemming is a relatively crude process of simplification
+
+alternative
+- lemmatization that uses grammatical context & part of speech (POS) tagging
+```{r}
+library(SnowballC)
+
+docs <- tm_map(docs,stemDocument)
+```
+
+#inspect a particular document
+```{r eval=FALSE}
+writeLines(as.character(docs[[1]]))
+```
+
+## document term matrix
+```{r}
+dtm <- DocumentTermMatrix(docs)
+dtm
+inspect(dtm[1:3,1:10])
+```
+
+## mining the corpus
+- count word frequency across corpus 
+- create sort order (descending)
+- inspect most frequently occurring terms
+- inspect least frequently occurring terms
+```{r}
+freq <- colSums(as.matrix(dtm))
+
+ord <- order(freq,decreasing=TRUE)
+
+
+freq[head(ord,n=20)]
+
+freq[tail(ord,n=10)]   
+```
+
+## further cleaning step
+- fix weird word
+- remove words shorter than 3 letters and larger than 20 
+
+```{r}
+docs <- tm_map(docs, content_transformer(gsub), pattern = "writtenspoken", replacement = "written spoken")
+
+dtmr <-DocumentTermMatrix(docs, control=list(wordLengths=c(3, 20)))
+dtmr
+
+# other reductions
+
+
+```
+
+## mine reduced corpus
+```{r}
+freq <- colSums(as.matrix(dtmr))
+
+ord <- order(freq,decreasing=TRUE)
+
+freq[head(ord,n=50)]
+
+freq[tail(ord,n=10)]
+```
+
+## find associations with a word in corpus
+- co-occurrence in text
+```{r}
+findAssocs(dtmr,"words",0.9)
+```
+
+
+## wordcloud
+- setting the same seed each time ensures consistent look across clouds
+- limit words by specifying min frequency
+```{r}
+library(wordcloud)
+library(RColorBrewer)
+
+freqr <- colSums(as.matrix(dtmr))
+set.seed(42)
+wordcloud(names(freqr),freqr, min.freq=40)
+```
+
+
+## tool to find synonyms of word
+
+you can change occurrence of synonyms to base word to further reduce text
+```{r eval = FALSE}
+library(wordnet)
+setDict("/usr/local/Cellar/wordnet/3.1/dict")
+synonyms("language","NOUN")
+```
+
+## sentiment analysis
+
+```{r}
+library(tidytext)
+
+
+
+```
+
+
+
+
+
+
