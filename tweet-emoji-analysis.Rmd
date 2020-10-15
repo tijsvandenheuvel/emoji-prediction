@@ -1,0 +1,35 @@
+---
+title: "Tweet analysis"
+author: "Tijs Van den Heuvel"
+date: "10/15/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(reticulate)
+```
+# Tweet sentiment analysis and emoji prediction
+
+[data](https://www.kaggle.com/rexhaif/emojifydata-en)
+
+I preprocessed this data to turn it into a dataframe in the jupyter notebook: 
+
+_tweet-data-preproc.ipynb_
+
+```{r}
+tweet_df <- read.csv("~/bin/tweets/out/part-00000-5ff97c11-ddcf-4d12-a117-4207bb476b97-c000.csv")
+```
+
+```{r}
+tweet_df$text[1]
+```
+
+
+
+
+```{r}
+
+```
+
+
