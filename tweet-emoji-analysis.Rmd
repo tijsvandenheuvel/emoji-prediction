@@ -31,7 +31,7 @@ tweets_red_df
 ```
 
 ```{r}
-
+tweets_red_df[sample(1:.N,3)]
 ```
 
 ```{r}
