@@ -20,18 +20,32 @@ _tweet-data-preproc.ipynb_
 > the process seems to work for the small exerpt but not for the whole dataset
 
 ```{r}
-tweet_df <- read.csv("~/bin/tweets/out/part-00000-5ff97c11-ddcf-4d12-a117-4207bb476b97-c000.csv")
+tweets_red_df <- read.csv("~/bin/tweets/outv2/part-00000-759d612e-880f-4b68-9680-04e42ee361b7-c000.csv")
+
+library(NLP)
+library(tm)
+corp= VCorpus(VectorSource(tweets_red_df$text))
 ```
 
 ```{r}
-tweet_df$text[1]
+tweets_red_df$text[1]
+tweets_red_df$emoji[1]
 ```
 
-
-
+```{r}
+writeLines(as.character(corp[[1]]))
+```
+## data cleaning
+- how necessary is this, some things could be useful data
 
 ```{r}
+corp <- tm_map(corp, removePunctuation)
+#corp <- tm_map(corp, removeNumbers)
+corp <- tm_map(corp,content_transformer(tolower))
+```
 
+```{r}
+writeLines(as.character(corp[[1]]))
 ```
 
 
