@@ -8,6 +8,10 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(reticulate)
+library(magrittr)
+library(data.table)
+library(NLP)
+library(tm)
 ```
 # Tweet sentiment analysis and emoji prediction
 
@@ -20,19 +24,18 @@ _tweet-data-preproc.ipynb_
 > the process seems to work for the small exerpt but not for the whole dataset
 
 ```{r}
-tweets_red_df <- read.csv("~/bin/tweets/outv2/part-00000-759d612e-880f-4b68-9680-04e42ee361b7-c000.csv")
-
-library(NLP)
-library(tm)
-corp= VCorpus(VectorSource(tweets_red_df$text))
-```
-
-```{r}
+tweets_red_df <- fread("~/bin/tweets/outv2/part-00000-759d612e-880f-4b68-9680-04e42ee361b7-c000.csv")
 tweets_red_df$text[1]
 tweets_red_df$emoji[1]
+tweets_red_df
 ```
 
 ```{r}
+
+```
+
+```{r}
+corp= VCorpus(VectorSource(tweets_red_df$text))
 writeLines(as.character(corp[[1]]))
 ```
 ## data cleaning
