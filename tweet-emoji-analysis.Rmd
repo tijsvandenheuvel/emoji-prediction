@@ -13,42 +13,257 @@ library(data.table)
 library(NLP)
 library(tm)
 ```
+
 # Tweet sentiment analysis and emoji prediction
+
+The purpose of this project is to try and predict an emoji based on text.
+
+It would be great if an algorithm could suggest some emojis based on a different piece of text.
+
+The dataset is a collection of tweets with at least one emoji.
 
 [data](https://www.kaggle.com/rexhaif/emojifydata-en)
 
-I preprocessed this data to turn it into a dataframe in the jupyter notebook: 
+The data is gathered, selected and reformatted by _Daniil Larionov_ from the _ArchiveTeam Twitter data_ source
 
-_tweet-data-preproc.ipynb_
+I transformed this data to turn it into a data table in this jupyter notebook: _tweet-data-preproc.ipynb_ with the use of PySpark
+- this transformation process seemed to work for the small exerpt but is very slow for the whole data set 
+- so I did it for 10 and 165 tweets to get started 
 
-> the process seems to work for the small exerpt but not for the whole dataset
+- I did some initial experimentation and data cleaning with the 10 tweets set
+- then I tried to create and run a model with the 165 tweets set
+- when that model worked (with an accuracy of 18%) I proceeded to fix the pre-processor & get the entire data set 
 
 ```{r}
-tweets_red_df <- fread("~/bin/tweets/outv2/part-00000-759d612e-880f-4b68-9680-04e42ee361b7-c000.csv")
-tweets_red_df$text[1]
-tweets_red_df$emoji[1]
-tweets_red_df
+#tweets_10_single_emoji <- fread("./data/reduced_tweets_single.csv")
+tweets_165_single_emoji <- fread("./data/165tweets.csv")
+tweetDT <- tweets_165_single_emoji
+nrow(tweets_165_single_emoji)
+```
+
+## a sample of the tweets
+
+```{r}
+tweetDT[sample(1:.N,3)]
+```
+
+## clean text
+
+- remove all non ascii characters
+- remove numbers 
+- remove words of length 1 
+- merge multiple spaces
+- remove trailing spaces
+- to lower case
+
+> some of these steps could remove too much information, can be revised
+
+```{r}
+tweetDT$text<-gsub('[^\x01-\x7F]',' ',tweetDT$text)
+tweetDT$text<-gsub('[0-9]+',' ',tweetDT$text)
+tweetDT$text<-gsub('\\b\\w{1}\\s','',tweetDT$text)
+tweetDT$text<-gsub('\\s+',' ',tweetDT$text)
+tweetDT$text<-gsub(' $','',tweetDT$text)
+tweetDT$text<-tolower(tweetDT$text)
+
 ```
 
 ```{r}
-tweets_red_df[sample(1:.N,3)]
+tweetDT[sample(1:.N,10)]
 ```
 
-```{r}
-corp= VCorpus(VectorSource(tweets_red_df$text))
+## convert to Corpus to us tm package
+
+- text cleaning can be done with regex in data table
+- I could use the tm package if I would want to analyse the data in a different way
+
+```{r eval=FALSE}
+corp = VCorpus(VectorSource(tweetDT$text))
 writeLines(as.character(corp[[1]]))
-```
-## data cleaning
-- how necessary is this, some things could be useful data
 
-```{r}
 corp <- tm_map(corp, removePunctuation)
-#corp <- tm_map(corp, removeNumbers)
 corp <- tm_map(corp,content_transformer(tolower))
+
+removeChar <- content_transformer(function(x, pattern) {return (gsub(pattern," ", x))})
+
+corp <- tm_map(corp, removeChar,"%")
+```
+
+
+## distribution of number of words in a tweet 
+
+```{r}
+tweetDT$text %>% strsplit(" ") %>% sapply(length) %>% summary()
+```
+
+## Text classification with Tensorflow for R
+
+- here I start with some tensorflow tutorial
+  - [tutorial](https://tensorflow.rstudio.com/tutorials/beginners/basic-ml/tutorial_basic_text_classification/)
+- the input is the text of the tweet
+- the output should be the emoji
+- a neural network takes in tensors (matrix) and not text so I needed to prepare the data
+
+```{r}
+library(keras)
+library(dplyr)
+library(ggplot2)
+library(purrr)
+```
+
+### prepare the input data
+
+- the tweets must be converted to tensors to use in NN
+- create a dictionary & represent each of the 10,00 most common words by an integer
+- you could create a very sparse 1,000D vector but that's too memory intensive (one hot)
+- alternative solution from tutorial:
+  - pad the arrays so they all have same length
+  - create integer tensor of shape `num_examples * max_length`
+  - use an embedding layer capable of handling this shape as first layer
+- `adapt` the text vectorization layer to learn about unique words in our data set
+
+```{r}
+num_words <- 1000
+max_length <- 50
+text_vectorization <- layer_text_vectorization(
+  max_tokens = num_words, 
+  output_sequence_length = max_length, 
+)
+text_vectorization %>% adapt(tweetDT$text)
+```
+
+show vocabulary 
+```{r eval=FALSE}
+get_vocabulary(text_vectorization)%>%sample(10)
+```
+
+show how text vectorization layer transforms input
+```{r eval=FALSE}
+text_vectorization(matrix(tweetDT$text[1], ncol = 1))
+```
+
+### prepare the output data
+
+- I searched a long time how to encode the emojis
+- the emojis have to be encoded as a vector
+- one hot is a good method 
+- keras had built in function: to_categorical but it needs integer input
+- convert labels to integers
+- first column is entirely empty so I remove it
+- how many emojis are there -> size of final layer
+- create an emoji dictionary to find which number maps to which emoji after prediction
+
+```{r}
+emoji_count <- unique(tweetDT$emoji)%>%length()
+emoji_count
+
+emoji_int <- match(tweetDT$emoji,unique(tweetDT$emoji))
+
+one_hot_emoji <- to_categorical(emoji_int)
+one_hot_emoji <- one_hot_emoji[,2:(emoji_count+1)]
+
+emoji_dict <- tweetDT$emoji%>%unique()
+```
+
+### split the dataset into training & testing
+
+- 80% training, 20% testing, arbitrarily chosen
+
+```{r}
+training_id <- sample.int(nrow(tweetDT), size = nrow(tweetDT)*0.8)
+training <- tweetDT[training_id,]
+testing <- tweetDT[-training_id,]
+oh_train <-one_hot_emoji[training_id,]
+oh_test <- one_hot_emoji[-training_id,]
+nrow(training)
+nrow(oh_train)
+nrow(testing)
+nrow(oh_test)
+```
+
+### build the model
+
+- how many layers?
+- how many hidden units?
+
+```{r}
+input <- layer_input(shape = c(1), dtype = "string")
+
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = num_words + 1, output_dim = 16) %>%
+  layer_global_average_pooling_1d() %>%
+  layer_dense(units = 16, activation = "relu") %>%
+  layer_dropout(0.5) %>% 
+  layer_dense(units = emoji_count, activation = "softmax")
+
+model <- keras_model(input, output)
+```
+
+### loss function and optimizer
+
+- the tutorial uses binary_crossentropy but our variables are categorical
+
+```{r}
+model %>% compile(
+  optimizer = 'adam',
+  loss = 'categorical_crossentropy',
+  metrics = list('accuracy')
+)
+```
+
+### Train the model
+
+```{r}
+history <- model %>% fit(
+  training$text,
+  oh_train,
+  epochs = 10,
+  batch_size = 13,
+  validation_split = 0.2,
+  verbose=2
+)
+```
+
+### evaluate model
+```{r}
+results <- model %>% evaluate(testing$text, oh_test, verbose = 0)
+results
 ```
 
 ```{r}
-writeLines(as.character(corp[[1]]))
+plot(history)
 ```
+
+```{r}
+prediction <- predict(model,testing$text[1])[1,]
+predicted_int <- which.max(prediction)
+predicted_emoji <- emoji_dict[predicted_int]
+
+print(paste("predicted:",predicted_emoji))
+
+print(paste("true",testing$emoji[1]))
+
+print("this example happens to be correct but the accuracy is 18%")
+
+```
+
+
+```{r}
+plot(prediction)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
