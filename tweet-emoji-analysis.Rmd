@@ -35,10 +35,10 @@ I transformed this data to turn it into a data table in this jupyter notebook: _
 - when that model worked (with an accuracy of 18%) I proceeded to fix the pre-processor & get the entire data set 
 
 ```{r}
-#tweets_10_single_emoji <- fread("./data/reduced_tweets_single.csv")
-tweets_165_single_emoji <- fread("./data/165tweets.csv")
-tweetDT <- tweets_165_single_emoji
-nrow(tweets_165_single_emoji)
+#tweetDT <- fread("./data/reduced_tweets_single.csv")
+#tweetDT <- fread("./data/165tweets.csv")
+tweetDT <- fread("./data/tweets_full.csv")
+nrow(tweetDT)
 ```
 
 ## a sample of the tweets
@@ -57,6 +57,10 @@ tweetDT[sample(1:.N,3)]
 - to lower case
 
 > some of these steps could remove too much information, can be revised
+
+> remove trailing space
+
+> do this is fewer steps because this is slow
 
 ```{r}
 tweetDT$text<-gsub('[^\x01-\x7F]',' ',tweetDT$text)
@@ -96,6 +100,12 @@ corp <- tm_map(corp, removeChar,"%")
 tweetDT$text %>% strsplit(" ") %>% sapply(length) %>% summary()
 ```
 
+## how many different emoji's are present
+```{r}
+emoji_count <- unique(tweetDT$emoji)%>%length()
+emoji_count
+```
+
 ## Text classification with Tensorflow for R
 
 - here I start with some tensorflow tutorial
@@ -114,8 +124,8 @@ library(purrr)
 ### prepare the input data
 
 - the tweets must be converted to tensors to use in NN
-- create a dictionary & represent each of the 10,00 most common words by an integer
-- you could create a very sparse 1,000D vector but that's too memory intensive (one hot)
+- create a dictionary & represent each of the 10,000 most common words by an integer
+- you could create a very sparse 1,0000D vector but that's too memory intensive (one hot)
 - alternative solution from tutorial:
   - pad the arrays so they all have same length
   - create integer tensor of shape `num_examples * max_length`
@@ -123,7 +133,7 @@ library(purrr)
 - `adapt` the text vectorization layer to learn about unique words in our data set
 
 ```{r}
-num_words <- 1000
+num_words <- 10000
 max_length <- 50
 text_vectorization <- layer_text_vectorization(
   max_tokens = num_words, 
@@ -154,9 +164,6 @@ text_vectorization(matrix(tweetDT$text[1], ncol = 1))
 - create an emoji dictionary to find which number maps to which emoji after prediction
 
 ```{r}
-emoji_count <- unique(tweetDT$emoji)%>%length()
-emoji_count
-
 emoji_int <- match(tweetDT$emoji,unique(tweetDT$emoji))
 
 one_hot_emoji <- to_categorical(emoji_int)
@@ -185,8 +192,12 @@ nrow(oh_test)
 
 - how many layers?
 - how many hidden units?
+- what types of building blocks?
 
-```{r}
+model 1
+- accuracy on test set of 29%
+- loss of 2.783
+```{r eval = FALSE}
 input <- layer_input(shape = c(1), dtype = "string")
 
 output <- input %>% 
@@ -195,6 +206,94 @@ output <- input %>%
   layer_global_average_pooling_1d() %>%
   layer_dense(units = 16, activation = "relu") %>%
   layer_dropout(0.5) %>% 
+  layer_dense(units = emoji_count, activation = "softmax")
+
+model <- keras_model(input, output)
+```
+
+model 2
+- add an extra layer
+- accuracy on test set is 33%
+- loss is 2.6548331 
+```{r eval = FALSE}
+input <- layer_input(shape = c(1), dtype = "string")
+
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = num_words + 1, output_dim = 16) %>%
+  layer_global_average_pooling_1d() %>%
+  layer_dense(units = 16, activation = "relu") %>%
+  layer_dense(units = 16, activation = "relu") %>%
+  layer_dropout(0.2) %>% 
+  layer_dense(units = emoji_count, activation = "softmax")
+
+model <- keras_model(input, output)
+```
+
+model 3
+- add an extra layer
+- 2 dropout layers
+- double the size of the layers: 16 is small to go from 50 tot 50
+- accuracy on test set is 0.34
+- loss is 2.5792720
+- the more complex network is only slightly more performant
+```{r eval = FALSE}
+input <- layer_input(shape = c(1), dtype = "string")
+
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = num_words + 1, output_dim = 16) %>%
+  layer_global_average_pooling_1d() %>%
+  layer_dense(units = 32, activation = "relu") %>%
+  layer_dropout(0.1) %>% 
+  layer_dense(units = 32, activation = "relu") %>%
+  layer_dropout(0.1) %>% 
+  layer_dense(units = 32, activation = "relu") %>%
+  layer_dense(units = emoji_count, activation = "softmax")
+
+model <- keras_model(input, output)
+```
+
+model 4
+-the input and output are both size 50 so let's make the middle layers also size 50
+- 2 dense layers
+- 1 small dropout 
+- accuracy on test set is 0.3578
+- loss is 2.5344746
+```{r eval = FALSE}
+input <- layer_input(shape = c(1), dtype = "string")
+
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = num_words + 1, output_dim = 16) %>%
+  layer_global_average_pooling_1d() %>%
+  layer_dense(units = 50, activation = "relu") %>%
+  layer_dense(units = 50, activation = "relu") %>%
+  layer_dropout(0.2) %>% 
+  layer_dense(units = emoji_count, activation = "softmax")
+
+model <- keras_model(input, output)
+```
+
+model 5
+- 50 is perhaps a little big
+- lets try a deeper more slender model
+- accuracy on test set is 0.3398407 
+- loss is 2.6135445 
+```{r eval = TRUE}
+input <- layer_input(shape = c(1), dtype = "string")
+
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = num_words + 1, output_dim = 16) %>%
+  layer_global_average_pooling_1d() %>%
+  layer_dense(units = 32, activation = "relu") %>%
+  layer_dense(units = 32, activation = "relu") %>%
+  layer_dropout(0.1) %>% 
+  layer_dense(units = 32, activation = "relu") %>%
+  layer_dropout(0.1) %>% 
+  layer_dense(units = 32, activation = "relu") %>%
+  layer_dropout(0.1) %>% 
   layer_dense(units = emoji_count, activation = "softmax")
 
 model <- keras_model(input, output)
@@ -218,8 +317,8 @@ model %>% compile(
 history <- model %>% fit(
   training$text,
   oh_train,
-  epochs = 10,
-  batch_size = 13,
+  epochs = 100,
+  batch_size = 512,
   validation_split = 0.2,
   verbose=2
 )
@@ -236,15 +335,22 @@ plot(history)
 ```
 
 ```{r}
-prediction <- predict(model,testing$text[1])[1,]
+testing[sample(1:.N,10)]
+```
+
+```{r}
+
+id <-10
+prediction <- predict(model,testing$text[id])[1,]
 predicted_int <- which.max(prediction)
 predicted_emoji <- emoji_dict[predicted_int]
 
+plot(prediction)
+
 print(paste("predicted:",predicted_emoji))
 
-print(paste("true",testing$emoji[1]))
+print(paste("true:",testing$emoji[id]))
 
-print("this example happens to be correct but the accuracy is 18%")
 
 ```
 
