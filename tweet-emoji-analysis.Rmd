@@ -20,24 +20,26 @@ The purpose of this project is to try and predict an emoji based on text.
 
 It would be great if an algorithm could suggest some emojis based on a different piece of text.
 
-The dataset is a collection of tweets with at least one emoji.
+The data set consists of a collection of tweets with at least one emoji.
 
-[data](https://www.kaggle.com/rexhaif/emojifydata-en)
+[data source](https://www.kaggle.com/rexhaif/emojifydata-en)
 
 The data is gathered, selected and reformatted by _Daniil Larionov_ from the _ArchiveTeam Twitter data_ source
 
-I transformed this data to turn it into a data table in this jupyter notebook: _tweet-data-preproc.ipynb_ with the use of PySpark
-- this transformation process seemed to work for the small exerpt but is very slow for the whole data set 
+I transformed this data to turn it into a data table in this jupyter notebook: 
+[preprocess](tweet-data-prepros.ipynb)
+with the use of PySpark and regex
+- this transformation process took a lot of work to make fast enough for large data sets
 - so I did it for 10 and 165 tweets to get started 
-
 - I did some initial experimentation and data cleaning with the 10 tweets set
 - then I tried to create and run a model with the 165 tweets set
-- when that model worked (with an accuracy of 18%) I proceeded to fix the pre-processor & get the entire data set 
+- when that model worked (with an accuracy of 18%) I proceeded to fix the pre-processor & get the entire data set
+
 
 ```{r}
 #tweetDT <- fread("./data/reduced_tweets_single.csv")
 #tweetDT <- fread("./data/165tweets.csv")
-tweetDT <- fread("./data/tweets_full.csv")
+tweetDT <- fread("./data/tweets_full_v2.csv")
 nrow(tweetDT)
 ```
 
