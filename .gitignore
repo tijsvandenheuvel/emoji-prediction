@@ -5,3 +5,6 @@
 .Rhistory
 .Rhistory
 .RData
+*.zip
+*.csv
+*.txt

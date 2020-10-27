@@ -122,6 +122,7 @@ emoji_count
 - the output should be the emoji
 - a neural network takes in tensors (matrix) and not text so I needed to prepare the data
 
+### imports
 ```{r}
 library(keras)
 library(dplyr)
@@ -202,8 +203,9 @@ nrow(oh_test)
 - how many layers?
 - how many hidden units?
 - what types of building blocks?
+- what type of architecture?
 
-model 1
+#### model 1 (0.29)
 - just try something from the tutorial
 
 - accuracy on the dev test set of 29%
@@ -222,7 +224,7 @@ output <- input %>%
 model <- keras_model(input, output)
 ```
 
-model 2
+#### model 2 (0.33)
 - add an extra layer
 
 - accuracy on the dev test set is 33%
@@ -242,7 +244,7 @@ output <- input %>%
 model <- keras_model(input, output)
 ```
 
-model 3
+#### model 3 (0.34)
 - add an extra layer
 - 2 dropout layers
 - double the size of the layers: 16 is small to go from 50 tot 50
@@ -267,7 +269,7 @@ output <- input %>%
 model <- keras_model(input, output)
 ```
 
-model 4
+#### model 4 (0.36)
 -the input and output are both size 50 so let's make the middle layers also size 50
 - 2 dense layers
 - 1 small dropout 
@@ -290,7 +292,7 @@ output <- input %>%
 model <- keras_model(input, output)
 ```
 
-model 5
+#### model 5 (0.34)
 - 50 is perhaps a little big
 - lets try a deeper more slender model
 
@@ -315,9 +317,9 @@ output <- input %>%
 model <- keras_model(input, output)
 ```
 
-### loss function and optimizer
 
-model 6
+
+#### model 6 (0.36)
 - three layers of 40 each 
 
 - took 3 hours to train on the full train set
@@ -339,7 +341,138 @@ output <- input %>%
 model <- keras_model(input, output)
 ```
 
+#### model 7 (0.377)
 
+- modify the layer embedding from 16 to 40
+
+- text vectorization with max length 100
+  - perf on dev set loss: 2.6350586 accuracy: 0.3726049
+  - run time 47 minutes
+  
+- text vectorization with max length 50
+  - perf on dev set loss: 2.6026843  accuracy: 0.3773668 
+  - run time 44 minutes
+```{r eval = FALSE}
+input <- layer_input(shape = c(1), dtype = "string")
+
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = num_words + 1, output_dim = 40) %>%
+  layer_global_average_pooling_1d() %>%
+  layer_dense(units = 40, activation = "relu") %>%
+  layer_dense(units = 40, activation = "relu") %>%
+  layer_dense(units = 40, activation = "relu") %>%
+  layer_dropout(0.2) %>% 
+  layer_dense(units = emoji_count, activation = "softmax")
+
+model <- keras_model(input, output)
+```
+
+#### model 8 (0.362)
+
+- same amount of nodes but distributed over more layers is slower and worse
+
+- perf on dev set loss: 2.6350629    accuracy: 0.3620144
+- run time 1.05 hours
+```{r eval = FALSE}
+input <- layer_input(shape = c(1), dtype = "string")
+
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = num_words + 1, output_dim = 40) %>%
+  layer_global_average_pooling_1d() %>%
+  layer_dense(units = 30, activation = "relu") %>%
+  layer_dense(units = 30, activation = "relu") %>%
+  layer_dense(units = 30, activation = "relu") %>%
+  layer_dense(units = 30, activation = "relu") %>%
+  layer_dropout(0.2) %>% 
+  layer_dense(units = emoji_count, activation = "softmax")
+
+model <- keras_model(input, output)
+```
+
+#### model 9 (0.387)
+
+- 4 x 50 nodes
+
+- perf on dev set loss: 2.6434860 accuracy:  0.3869762
+- the val_loss was rising, this is a sign of over fitting
+
+```{r eval=FALSE}
+input <- layer_input(shape = c(1), dtype = "string")
+
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = num_words + 1, output_dim = 50) %>%
+  layer_global_average_pooling_1d() %>%
+  layer_dense(units = 50, activation = "relu") %>%
+  layer_dense(units = 50, activation = "relu") %>%
+  layer_dense(units = 50, activation = "relu") %>%
+  layer_dropout(0.2) %>% 
+  layer_dense(units = emoji_count, activation = "softmax")
+
+model <- keras_model(input, output)
+```
+
+#### model 10 (0.373)
+
+- 4 x 50 nodes
+- double dropout (0.2-> 0.4) because last seemed to over fit (val_loss was increasing)
+- change epochs from 100-50 because it didn't do much it the later epochs
+- this is a little less performing than 2.3 but trains twice as fast and show less signs of over fitting
+
+- perf on dev set loss: 2.6168747 accuracy:  0.3732527
+- run time 26 minutes
+```{r eval = FALSE}
+input <- layer_input(shape = c(1), dtype = "string")
+
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = num_words + 1, output_dim = 50) %>%
+  layer_global_average_pooling_1d() %>%
+  layer_dense(units = 50, activation = "relu") %>%
+  layer_dense(units = 50, activation = "relu") %>%
+  layer_dense(units = 50, activation = "relu") %>%
+  layer_dropout(0.4) %>% 
+  layer_dense(units = emoji_count, activation = "softmax")
+
+model <- keras_model(input, output)
+```
+
+#### model 11 (0.374)
+
+- 5 x 50 nodes
+- add an extra layer 
+- nothing changes
+- this model is larger so seems to need more epochs: train for another 50 epochs
+- more epoch had no significant impact on performance, the loss is even higher
+
+50 epochs 
+- perf on dev set loss: 2.6722088  accuracy: 0.3744027
+- run time 24 minutes 
+
+100 epochs 
+- perf on dev set loss: 2.859356  accuracy: 0.379285 
+- run time another 24 minutes 
+```{r}
+input <- layer_input(shape = c(1), dtype = "string")
+
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = num_words + 1, output_dim = 50) %>%
+  layer_global_average_pooling_1d() %>%
+  layer_dense(units = 50, activation = "relu") %>%
+  layer_dense(units = 50, activation = "relu") %>%
+  layer_dense(units = 50, activation = "relu") %>%
+  layer_dropout(0.4) %>% 
+  layer_dense(units = emoji_count, activation = "softmax")
+
+model <- keras_model(input, output)
+```
+
+
+
+### compile model with loss function and optimizer
 the tutorial uses binary_crossentropy but our variables are categorical
 ```{r}
 model %>% compile(
@@ -349,11 +482,11 @@ model %>% compile(
 )
 ```
 
+### Train the model
+
 ```{r}
 t1<-Sys.time()
 ```
-
-### Train the model
 
 ```{r}
 history <- model %>% fit(
@@ -404,14 +537,16 @@ plot(prediction)
 ```
 
 
+
 ## lets try some different things
 
 > THIS LINE IS TO FIND THIS PLACE IN THE NOTEBOOK
 
 - convolutional networks
-- find similar examples on github
+- find similar projects on github
 - [LSTM example in python](https://medium.com/@djajafer/multi-class-text-classification-with-keras-and-lstm-4c5525bef592)
 - training on the full data set takes 3 hours so I will use the dev for development
+- go back to creating cleaner dataset, lemmatization, remove nonsense, check if that gives improvement
 
 ### input vectorization
 - double the size of input vector
@@ -425,135 +560,14 @@ text_vectorization <- layer_text_vectorization(
 text_vectorization %>% adapt(tweetDT$text)
 ```
 
-model 2.1
+#### model x
 
-- modify the layer embedding from 16 to 40
-
-- text vectorization with max length 100
-  - perf on dev set loss: 2.6350586 accuracy: 0.3726049
-  - run time 47 minutes
-  
-- text vectorization with max length 50
-  - perf on dev set loss: 2.6026843  accuracy: 0.3773668 
-  - run time 44 minutes
-```{r eval = FALSE}
-input <- layer_input(shape = c(1), dtype = "string")
-
-output <- input %>% 
-  text_vectorization() %>% 
-  layer_embedding(input_dim = num_words + 1, output_dim = 40) %>%
-  layer_global_average_pooling_1d() %>%
-  layer_dense(units = 40, activation = "relu") %>%
-  layer_dense(units = 40, activation = "relu") %>%
-  layer_dense(units = 40, activation = "relu") %>%
-  layer_dropout(0.2) %>% 
-  layer_dense(units = emoji_count, activation = "softmax")
-
-model <- keras_model(input, output)
-```
-
-model 2.2
-
-- same amount of nodes but distributed over more layers is slower and worse
-
-- perf on dev set loss: 2.6350629    accuracy: 0.3620144
-- run time 1.05 hours
-```{r eval = FALSE}
-input <- layer_input(shape = c(1), dtype = "string")
-
-output <- input %>% 
-  text_vectorization() %>% 
-  layer_embedding(input_dim = num_words + 1, output_dim = 40) %>%
-  layer_global_average_pooling_1d() %>%
-  layer_dense(units = 30, activation = "relu") %>%
-  layer_dense(units = 30, activation = "relu") %>%
-  layer_dense(units = 30, activation = "relu") %>%
-  layer_dense(units = 30, activation = "relu") %>%
-  layer_dropout(0.2) %>% 
-  layer_dense(units = emoji_count, activation = "softmax")
-
-model <- keras_model(input, output)
-```
-
-model 2.3
-
-- 4 x 50 nodes
-
-- perf on dev set loss: 2.6434860 accuracy:  0.3869762
-- the val_loss was rising, this is a sign of over fitting
-
-```{r eval=FALSE}
-input <- layer_input(shape = c(1), dtype = "string")
-
-output <- input %>% 
-  text_vectorization() %>% 
-  layer_embedding(input_dim = num_words + 1, output_dim = 50) %>%
-  layer_global_average_pooling_1d() %>%
-  layer_dense(units = 50, activation = "relu") %>%
-  layer_dense(units = 50, activation = "relu") %>%
-  layer_dense(units = 50, activation = "relu") %>%
-  layer_dropout(0.2) %>% 
-  layer_dense(units = emoji_count, activation = "softmax")
-
-model <- keras_model(input, output)
-```
-
-model 2.4
-
-- 4 x 50 nodes
-- double dropout (0.2-> 0.4) because last seemed to over fit (val_loss was increasing)
-- change epochs from 100-50 because it didn't do much it the later epochs
-- this is a little less performing than 2.3 but trains twice as fast and show less signs of over fitting
-
-- perf on dev set loss: 2.6168747 accuracy:  0.3732527
-- run time 26 minutes
-```{r eval = FALSE}
-input <- layer_input(shape = c(1), dtype = "string")
-
-output <- input %>% 
-  text_vectorization() %>% 
-  layer_embedding(input_dim = num_words + 1, output_dim = 50) %>%
-  layer_global_average_pooling_1d() %>%
-  layer_dense(units = 50, activation = "relu") %>%
-  layer_dense(units = 50, activation = "relu") %>%
-  layer_dense(units = 50, activation = "relu") %>%
-  layer_dropout(0.4) %>% 
-  layer_dense(units = emoji_count, activation = "softmax")
-
-model <- keras_model(input, output)
-```
-
-model 2.5
-
-- 5 x 50 nodes
-- add an extra layer 
-- nothing changes
-- this model is larger so seems to need more epochs: train for another 50 epochs
-- more epoch had no significant impact on performance, the loss is even higher
-
-50 epochs 
-- perf on dev set loss: 2.6722088  accuracy: 0.3744027
-- run time 24 minutes 
-
-100 epochs 
-- perf on dev set loss: 2.859356  accuracy: 0.379285 
-- run time another 24 minutes 
 ```{r}
-input <- layer_input(shape = c(1), dtype = "string")
 
-output <- input %>% 
-  text_vectorization() %>% 
-  layer_embedding(input_dim = num_words + 1, output_dim = 50) %>%
-  layer_global_average_pooling_1d() %>%
-  layer_dense(units = 50, activation = "relu") %>%
-  layer_dense(units = 50, activation = "relu") %>%
-  layer_dense(units = 50, activation = "relu") %>%
-  layer_dropout(0.4) %>% 
-  layer_dense(units = emoji_count, activation = "softmax")
-
-model <- keras_model(input, output)
 ```
 
+
+### compile model
 ```{r}
 model %>% compile(
   optimizer = 'adam',
@@ -562,12 +576,12 @@ model %>% compile(
 )
 ```
 
+### Train the model
+
 ```{r}
 t1<-Sys.time()
 t1
 ```
-
-### Train the model
 
 ```{r}
 history <- model %>% fit(
