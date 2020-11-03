@@ -38,13 +38,13 @@ with the use of PySpark and regex
 Full data set 
 - already split into training and test set
 - unpractical for cleansing and one hot encoding of output
-```{r eval = FALSE}
+```{r eval = TRUE}
 trainDT <- fread("./data/full_train.csv")
 testDT <- fread("./data/tweets_dev.csv")
 tweetDT=rbind(trainDT,testDT)
 ```
 Develoment data set
-```{r}
+```{r eval = FALSE}
 #tweetDT <- fread("./data/165tweets.csv")
 tweetDT <- fread("./data/tweets_dev.csv")
 
@@ -61,26 +61,27 @@ tweetDT[sample(1:.N,3)]
 
 - remove all non ascii characters
 - remove numbers 
-- remove words of length 1 
+- (remove words of length 1 )
 - merge multiple spaces
 - remove trailing spaces
 - to lower case
+- remove duplicate rows
+- remove empty tweets
 
 > some of these steps could remove too much information, can be revised
 > also further cleaning can be done
 
-> there appear to be words of size 0, fix?
-
-> this regex could be done in fewer steps, will this be faster?
 
 ```{r}
 tweetDT$text<-gsub('[^\x01-\x7F]',' ',tweetDT$text)
 tweetDT$text<-gsub('[0-9]+',' ',tweetDT$text)
-tweetDT$text<-gsub('\\b\\w{1}\\s','',tweetDT$text)
+#tweetDT$text<-gsub('\\b\\w{1}\\s','',tweetDT$text)
 tweetDT$text<-gsub('\\s+',' ',tweetDT$text)
 tweetDT$text<-gsub(' $','',tweetDT$text)
 tweetDT$text<-tolower(tweetDT$text)
 
+tweetDT<- tweetDT[!duplicated(tweetDT),]
+tweetDT<- tweetDT[tweetDT$text!='',]
 ```
 
 ```{r}
@@ -103,7 +104,7 @@ corp <- tm_map(corp, removeChar,"%")
 
 > maybe calculate amount of unique words 
 
-```{r}
+```{r eval = FALSE}
 tweetDT$text %>% strsplit(" ") %>% sapply(length) %>% summary()
 ```
 
@@ -138,13 +139,13 @@ library(purrr)
 - Tokenization is also a method for encoding words with a vocabulary index based on word frequency
 - solution from tutorial:
   - pad the arrays so they all have same length
-  - create integer tensor of shape `num_examples * max_length`
+  - create integer tensor of shape `num_words * max_length`
   - use an embedding layer capable of handling this shape as first layer
 - `adapt` the text vectorization layer to learn about the words in our data set
 
 ```{r}
 num_words <- 10000
-max_length <- 50
+max_length <- 40
 text_vectorization <- layer_text_vectorization(
   max_tokens = num_words, 
   output_sequence_length = max_length, 
@@ -325,7 +326,7 @@ model <- keras_model(input, output)
 - took 3 hours to train on the full train set
 - accuracy on the full set is 0.3630368 
 - with loss 2.4692233 
-```{r eval = TRUE}
+```{r eval = FALSE}
 input <- layer_input(shape = c(1), dtype = "string")
 
 output <- input %>% 
@@ -454,7 +455,9 @@ model <- keras_model(input, output)
 100 epochs 
 - perf on dev set loss: 2.859356  accuracy: 0.379285 
 - run time another 24 minutes 
-```{r}
+
+
+```{r eval = FALSE}
 input <- layer_input(shape = c(1), dtype = "string")
 
 output <- input %>% 
@@ -470,6 +473,133 @@ output <- input %>%
 model <- keras_model(input, output)
 ```
 
+#### model 2.1 (0.251)
+
+- 50 epoch 
+- full set
+- more dropout against over fitting
+- cleaner data, no duplicates, no empty tweets
+
+36 epochs on full set(4.3 mil) on GPU
+- (50 words per tweet)
+- acc:    0.250
+- loss:   2.8899
+- time:   40 min
+
+50 epochs (couldnt stop sooner) on full set(4.3 mil) on GPU 
+- (40 words per tweet)
+- acc:    0.251
+- loss:   2.8873570 
+- time:   47.28701
+```{r eval=FALSE}
+input <- layer_input(shape = c(1), dtype = "string")
+
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = num_words + 1, output_dim = 50) %>%
+  layer_global_average_pooling_1d() %>%
+  layer_dense(units = 50, activation = "relu") %>%
+  layer_dropout(0.2) %>% 
+  layer_dense(units = 50, activation = "relu") %>%
+  layer_dropout(0.2) %>% 
+  layer_dense(units = 50, activation = "relu") %>%
+  layer_dropout(0.2) %>% 
+  layer_dense(units = emoji_count, activation = "softmax")
+
+model <- keras_model(input, output)
+```
+#### model 2.2 (0.254)
+
+- 50 epoch 
+- full set
+- more dropout against over fitting
+- cleaner data, no duplicates, no empty tweets
+
+- 40 words per tweet
+- larger input dimensions
+
+won some accuracy but overfitted from epoch 20
+
+26 epochs on full set(4.3 mil) on GPU 
+- acc:    0.2541756
+- loss:   2.8667824 
+- time:   34 min
+```{r eval=FALSE}
+input <- layer_input(shape = c(1), dtype = "string")
+
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = num_words + 1, output_dim = 100) %>%
+  layer_global_average_pooling_1d() %>%
+  layer_dense(units = 80, activation = "relu") %>%
+  layer_dropout(0.2) %>% 
+  layer_dense(units = 60, activation = "relu") %>%
+  layer_dropout(0.2) %>% 
+  layer_dense(units = 50, activation = "relu") %>%
+  layer_dropout(0.2) %>% 
+  layer_dense(units = emoji_count, activation = "softmax")
+
+model <- keras_model(input, output)
+```
+#### model 2.2B
+
+- 50 epoch 
+- full set
+- more dropout against over fitting
+- cleaner data, no duplicates, no empty tweets
+
+- 40 words per tweet
+- smaller input dimensions
+
+
+ epochs on full set(4.3 mil) on GPU 
+- acc:    
+- loss:   
+- time:   
+```{r eval =FALSE}
+input <- layer_input(shape = c(1), dtype = "string")
+
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = num_words + 1, output_dim = 40) %>%
+  layer_global_average_pooling_1d() %>%
+  layer_dense(units = 42, activation = "relu") %>%
+  layer_dropout(0.2) %>% 
+  layer_dense(units = 44, activation = "relu") %>%
+  layer_dropout(0.2) %>% 
+  layer_dense(units = 46, activation = "relu") %>%
+  layer_dropout(0.2) %>% 
+  layer_dense(units = emoji_count, activation = "softmax")
+
+model <- keras_model(input, output)
+```
+#### model 3.1
+
+- 50 epoch 
+- full set
+- more dropout against over fitting
+- cleaner data, no duplicates, no empty tweets
+- 40 words per tweet
+
+RNN + LSTM
+
+
+ epochs on full set(4.3 mil) on GPU 
+- acc:    
+- loss:   
+- time:   
+```{r}
+input <- layer_input(shape = c(1), dtype = "string")
+
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = num_words + 1, output_dim = 40) %>%
+  layer_global_average_pooling_1d() %>%
+  layer_lstm(units = 50,input_shape=c(0,40),activation = "relu")
+  layer_dense(units = emoji_count, activation = "softmax")
+
+model <- keras_model(input, output)
+```
 
 
 ### compile model with loss function and optimizer
@@ -492,11 +622,11 @@ t1<-Sys.time()
 history <- model %>% fit(
   training$text,
   oh_train,
-  epochs = 100,
-  batch_size = 512,
+  epochs = 50,
+  batch_size = 1660,
   validation_split = 0.2,
   verbose=2
-)
+) 
 ```
 
 ```{r}
@@ -516,7 +646,31 @@ plot(history)
 
 ### single prediction
 
-- basis for an application
+```{r}
+id <- 3
+amount <-10
+
+prediction <- predict(model,testing$text[id])[1,]
+
+
+top_val <- prediction[order(prediction)]%>%rev() %>%head(amount) %>% round(3)
+#top_val
+
+top_ids <- order(prediction) %>% rev() %>% head(amount)
+#top_ids
+
+top_emoji <- emoji_dict[top_ids]
+top_prediction <- cbind(top_emoji,top_val)
+
+
+print(paste("text:",testing$text[id]))
+print(paste("true:",testing$emoji[id]))
+
+print(top_prediction)
+
+
+```
+
 ```{r eval = FALSE}
 
 id <-10
@@ -531,9 +685,17 @@ print(paste("true:",testing$emoji[id]))
 
 ```
 
+```{r eval = FALSE}
+plot(prediction)
+```
 
 ```{r}
-plot(prediction)
+model %>% serialize_model() %>% save_model_hdf5("my_model.h5")
+```
+```{r}
+list.files("model")
+new_model <- load_model_tf("model")
+summary(new_model)
 ```
 
 
@@ -548,62 +710,7 @@ plot(prediction)
 - training on the full data set takes 3 hours so I will use the dev for development
 - go back to creating cleaner dataset, lemmatization, remove nonsense, check if that gives improvement
 
-### input vectorization
-- double the size of input vector
-```{r}
-num_words <- 10000
-max_length <- 50
-text_vectorization <- layer_text_vectorization(
-  max_tokens = num_words, 
-  output_sequence_length = max_length, 
-)
-text_vectorization %>% adapt(tweetDT$text)
-```
 
-#### model x
-
-```{r}
-
-```
-
-
-### compile model
-```{r}
-model %>% compile(
-  optimizer = 'adam',
-  loss = 'categorical_crossentropy',
-  metrics = list('accuracy')
-)
-```
-
-### Train the model
-
-```{r}
-t1<-Sys.time()
-t1
-```
-
-```{r}
-history <- model %>% fit(
-  training$text,
-  oh_train,
-  epochs = 50,
-  batch_size = 512,
-  validation_split = 0.2,
-  verbose=2
-)
-```
-
-```{r}
-time <- Sys.time()-t1
-time
-```
-
-### evaluate model
-```{r}
-results <- model %>% evaluate(testing$text, oh_test, verbose = 0)
-results
-```
 
 
 
