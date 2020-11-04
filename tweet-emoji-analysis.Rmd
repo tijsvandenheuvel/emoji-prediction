@@ -38,13 +38,13 @@ with the use of PySpark and regex
 Full data set 
 - already split into training and test set
 - unpractical for cleansing and one hot encoding of output
-```{r eval = TRUE}
+```{r eval = FALSE}
 trainDT <- fread("./data/full_train.csv")
 testDT <- fread("./data/tweets_dev.csv")
 tweetDT=rbind(trainDT,testDT)
 ```
 Develoment data set
-```{r eval = FALSE}
+```{r eval = TRUE}
 #tweetDT <- fread("./data/165tweets.csv")
 tweetDT <- fread("./data/tweets_dev.csv")
 
@@ -73,6 +73,8 @@ tweetDT[sample(1:.N,3)]
 
 
 ```{r}
+nrow(tweetDT)
+
 tweetDT$text<-gsub('[^\x01-\x7F]',' ',tweetDT$text)
 tweetDT$text<-gsub('[0-9]+',' ',tweetDT$text)
 #tweetDT$text<-gsub('\\b\\w{1}\\s','',tweetDT$text)
@@ -82,6 +84,8 @@ tweetDT$text<-tolower(tweetDT$text)
 
 tweetDT<- tweetDT[!duplicated(tweetDT),]
 tweetDT<- tweetDT[tweetDT$text!='',]
+
+nrow(tweetDT)
 ```
 
 ```{r}
@@ -573,34 +577,108 @@ output <- input %>%
 
 model <- keras_model(input, output)
 ```
-#### model 3.1
+#### model 3.1 LSTM
 
-- 50 epoch 
-- full set
-- more dropout against over fitting
-- cleaner data, no duplicates, no empty tweets
 - 40 words per tweet
+- LSTM : good for long term memory, but very slow and 
+- the tweets are mostly just one sentence so try just RNN
 
-RNN + LSTM
-
+batch size 300 takes 360 seconds per epoch on CPU
 
  epochs on full set(4.3 mil) on GPU 
 - acc:    
 - loss:   
 - time:   
+```{r eval=FALSE}
+input <- layer_input(shape = c(1), dtype = "string")
+
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = num_words + 1, output_dim = 40) %>%
+  layer_spatial_dropout_1d(0.2)%>%
+  #layer_global_average_pooling_1d() %>%
+  layer_lstm(units = 49,activation = "relu",dropout=0.2, recurrent_dropout=0.2)
+  layer_dense(units = emoji_count, activation = "softmax")
+
+model <- keras_model(input, output)
+```
+#### model 3.2 simple RNN
+
+- 40 words per tweet
+- LSTM : good for long term memory, but very slow
+- the tweets are mostly just one sentence so try just RNN
+
+determine batch size for cpu
+- batch size 128 takes 130 sec/epoch
+- batch size 256 takes 120 sec/epoch
+- batch size 512 takes 100 sec/epoch 
+- batch size 1024 takes 80 sec/epoch (loss=nan)
+
+I encounter loss = nan
+- could be caused by
+  - large layers
+  - large batch size
+  - bad input (too much zeros in input vector) 
+    - check input data
+    
+- with one simple rnn layer, the val_accuracy doenst increase
+- added second simple rnn layer
+  - 100s -> 160s/epoch
+  - val accuracy stays exactly the same
+  
+- simple rnn is too weak an architecture to learn the patterns in the data ?
+
+```{r eval =FALSE}
+input <- layer_input(shape = c(1), dtype = "string")
+
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = num_words + 1, output_dim = 40) %>%
+  layer_spatial_dropout_1d(0.2)%>%
+  layer_simple_rnn(units = 45,activation = "relu",dropout=0.2, 
+                   recurrent_dropout=0.2,return_sequences = TRUE)%>%
+  layer_simple_rnn(units = 45,activation = "relu",dropout=0.2, recurrent_dropout=0.2)%>%
+  layer_dense(units = emoji_count, activation = "softmax")
+
+model <- keras_model(input, output)
+```
+
+#### model 3.3 GRU
+
+- 40 words per tweet
+- LSTM : good for long term memory, but very slow
+- RNN doesnt learn
+- GRU are less complex but similar to LSTM
+
+1 GRU layer
+- 230 seconds per epoch
+- with only one layer we have overfitting in 7 epochs (30 mins)
+- val_acc of 0.247
+
+2 GRU layers
+- 360 seconds per epoch
+- also overfitting in 7 epochs, same val
+
+battle overfitting by raising dropout from 0.2 to 0.3
+- overfits after 9 epochs 
+raising dropout from 0.3 to 0.4
+- overfits after 15 epochs 
+- accuracy 0.2500655
+- loss 2.8953950
+
+
 ```{r}
 input <- layer_input(shape = c(1), dtype = "string")
 
 output <- input %>% 
   text_vectorization() %>% 
   layer_embedding(input_dim = num_words + 1, output_dim = 40) %>%
-  layer_global_average_pooling_1d() %>%
-  layer_lstm(units = 50,input_shape=c(0,40),activation = "relu")
+  layer_spatial_dropout_1d(0.2)%>%
+  layer_gru(units = 45,dropout=0.4, recurrent_dropout=0.4)%>%
   layer_dense(units = emoji_count, activation = "softmax")
 
 model <- keras_model(input, output)
 ```
-
 
 ### compile model with loss function and optimizer
 the tutorial uses binary_crossentropy but our variables are categorical
@@ -623,7 +701,8 @@ history <- model %>% fit(
   training$text,
   oh_train,
   epochs = 50,
-  batch_size = 1660,
+  #batch_size = 1660, #gpu
+  batch_size = 512,   
   validation_split = 0.2,
   verbose=2
 ) 
@@ -647,7 +726,7 @@ plot(history)
 ### single prediction
 
 ```{r}
-id <- 3
+id <- 8
 amount <-10
 
 prediction <- predict(model,testing$text[id])[1,]
@@ -689,8 +768,8 @@ print(paste("true:",testing$emoji[id]))
 plot(prediction)
 ```
 
-```{r}
-model %>% serialize_model() %>% save_model_hdf5("my_model.h5")
+```{r eval = FALSE}
+model %>% serialize_model() %>% save_model_tf("my_model")
 ```
 ```{r}
 list.files("model")
@@ -702,13 +781,12 @@ summary(new_model)
 
 ## lets try some different things
 
-> THIS LINE IS TO FIND THIS PLACE IN THE NOTEBOOK
-
 - convolutional networks
 - find similar projects on github
 - [LSTM example in python](https://medium.com/@djajafer/multi-class-text-classification-with-keras-and-lstm-4c5525bef592)
 - training on the full data set takes 3 hours so I will use the dev for development
 - go back to creating cleaner dataset, lemmatization, remove nonsense, check if that gives improvement
+- word embedding with ngrams
 
 
 
