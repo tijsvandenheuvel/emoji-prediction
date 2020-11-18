@@ -156,7 +156,7 @@ text_vectorization <- layer_text_vectorization(
 )
 text_vectorization %>% adapt(tweetDT$text)
 ```
-
+#### text vectorization example / info 
 show vocabulary 
 ```{r eval=FALSE}
 get_vocabulary(text_vectorization)%>%sample(10)
@@ -585,19 +585,21 @@ model <- keras_model(input, output)
 
 batch size 300 takes 360 seconds per epoch on CPU
 
- epochs on full set(4.3 mil) on GPU 
-- acc:    
-- loss:   
-- time:   
+2 lstm layers
+ epochs on dev set on GPU 
+- 28 epochs to overfit
+- acc:    0.2447176
+- loss:   2.9154146 
+- time:   2.5 hours
 ```{r eval=FALSE}
 input <- layer_input(shape = c(1), dtype = "string")
 
 output <- input %>% 
   text_vectorization() %>% 
   layer_embedding(input_dim = num_words + 1, output_dim = 40) %>%
-  layer_spatial_dropout_1d(0.2)%>%
-  #layer_global_average_pooling_1d() %>%
-  layer_lstm(units = 49,activation = "relu",dropout=0.2, recurrent_dropout=0.2)
+  layer_spatial_dropout_1d(0.3)%>%
+  layer_lstm(units = 45,dropout=0.5, recurrent_dropout=0.5,return_sequences = TRUE)%>%
+  layer_lstm(units = 45,dropout=0.5, recurrent_dropout=0.5)%>%
   layer_dense(units = emoji_count, activation = "softmax")
 
 model <- keras_model(input, output)
@@ -645,18 +647,21 @@ model <- keras_model(input, output)
 
 #### model 3.3 GRU
 
+[GRU explain](https://blog.floydhub.com/gru-with-pytorch/)
+
 - 40 words per tweet
 - LSTM : good for long term memory, but very slow
 - RNN doesnt learn
 - GRU are less complex but similar to LSTM
 
 1 GRU layer
-- 230 seconds per epoch
+- 230 seconds per epoch (100/140 seconds on GPU)
 - with only one layer we have overfitting in 7 epochs (30 mins)
 - val_acc of 0.247
 
 2 GRU layers
-- 360 seconds per epoch
+- 360 seconds per epoch cpu
+- 250 sec/epoch GPU
 - also overfitting in 7 epochs, same val
 
 battle overfitting by raising dropout from 0.2 to 0.3
@@ -666,6 +671,22 @@ raising dropout from 0.3 to 0.4
 - accuracy 0.2500655
 - loss 2.8953950
 
+when using GPU with dropout inside gru layer: 140s/epoch
+GPU with dropout outside gru layer : 100 s/epoch (overfit in 10 epochs)
+- dropout inside is not compatible with cudnn library
+- faster but no recurrent_dropout
+
+2 GRU layers with 0.5 dropout + layer spatial dropout 0.2->0.3 dropout
+GPU but no CUDNN
+- overfit after 30 epochs (2 hours)
+- loss 2.9230042
+- acc  0.2446868 
+
+3 GRU layers
+- 360 seconds per epoch, is just too slow 
+
+> 2 layer CUDNN doenst work, fix & improve regularization
+
 
 ```{r}
 input <- layer_input(shape = c(1), dtype = "string")
@@ -673,12 +694,15 @@ input <- layer_input(shape = c(1), dtype = "string")
 output <- input %>% 
   text_vectorization() %>% 
   layer_embedding(input_dim = num_words + 1, output_dim = 40) %>%
-  layer_spatial_dropout_1d(0.2)%>%
-  layer_gru(units = 45,dropout=0.4, recurrent_dropout=0.4)%>%
+  layer_spatial_dropout_1d(0.3)%>%
+  layer_gru(units = 45,dropout=0.5, recurrent_dropout=0.5,return_sequences = TRUE)%>%
+  layer_gru(units = 45,dropout=0.5, recurrent_dropout=0.5)%>%
+  #layer_gru(units = 45,return_state = TRUE)%>%layer_dropout(0.5)%>%
   layer_dense(units = emoji_count, activation = "softmax")
 
 model <- keras_model(input, output)
 ```
+
 
 ### compile model with loss function and optimizer
 the tutorial uses binary_crossentropy but our variables are categorical
@@ -701,8 +725,8 @@ history <- model %>% fit(
   training$text,
   oh_train,
   epochs = 50,
-  #batch_size = 1660, #gpu
-  batch_size = 512,   
+  batch_size = 1660, 
+ #batch_size = 512, #cpu  
   validation_split = 0.2,
   verbose=2
 ) 
@@ -726,7 +750,7 @@ plot(history)
 ### single prediction
 
 ```{r}
-id <- 8
+id <- 9
 amount <-10
 
 prediction <- predict(model,testing$text[id])[1,]
