@@ -108,8 +108,11 @@ corp <- tm_map(corp, removeChar,"%")
 
 > maybe calculate amount of unique words 
 
-```{r eval = FALSE}
+```{r}
 tweetDT$text %>% strsplit(" ") %>% sapply(length) %>% summary()
+```
+```{r}
+tweetDT$text %>% strsplit(" ") %>% sapply(length) %>%plot()
 ```
 
 ## how many different emoji's are present
@@ -795,9 +798,14 @@ plot(prediction)
 ```{r eval = FALSE}
 model %>% serialize_model() %>% save_model_tf("my_model")
 ```
+
 ```{r}
-list.files("model")
+list.files("saved_model.pb")
 new_model <- load_model_tf("model")
+summary(new_model)
+```
+```{r}
+new_model <- load_model_hdf5("my_model.h5")
 summary(new_model)
 ```
 
