@@ -383,23 +383,67 @@ model <- keras_model(input, output)
 - overfits in 7 epochs
 - accuracy 27.37%
 
+- num words = 10000
+- layer size = 128,192
+- 8.6 minutes / epoch
+- overfits in 5 epochs
+- accuracy 27.46 %
+
+- num words = 10000
+- layer size = 192,192
+- 9.3 minutes / epoch
+- overfits  in 5 epochs
+- accuracy 27.64 %
+
+- num words = 10000
+- layer size = 256,192
+- 10 minutes / epoch
+- overfits in 4 epochs
+- accuracy 27.53 %
+
+- num words = 10000
+- layer size = 256,256
+- 11 minutes / epoch
+- overfits in 4 epochs
+- accuracy 27.63 %
+
+- num words = 10000
+- layer size = 192,256
+- 10.5  minutes / epoch
+- overfits in 4 epochs
+- accuracy 27.54 %
+
+- num words = 10000
+- layer size = 192,192,128(dense)
+- 9.3 minutes / epoch
+- overfits in 7 epochs
+- accuracy 27.26 %
+
+- num words = 10000
+- layer size = 192(dense),192,192
+- 10.5 minutes / epoch
+- overfits in +15  epochs
+- accuracy 27.82%
+
 
 ```{r}
 input <- layer_input(shape = c(1), dtype = "string")
 
 output <- input %>% 
   text_vectorization() %>% 
-  layer_embedding(input_dim = num_words + 1, output_dim = 128) %>%
-  layer_gru(units = 128,return_sequences = TRUE)%>%
+  layer_embedding(input_dim = num_words + 1, output_dim = 192) %>%
+  layer_dense(units=192)%>%
+  layer_dropout(0.4)%>%
+  layer_gru(units = 192)%>%
   layer_dropout(0.5) %>% 
-  layer_gru(units = 64)%>%
-  layer_dropout(0.5) %>%
   layer_dense(units = emoji_count, activation = "softmax")
 
 model <- keras_model(input, output)
 ```
  
 #### model 4 bidirectional GRU
+
+no improvement, much slower
 
 - num words = 10000
 - layer size = 128,128
@@ -419,6 +463,7 @@ output <- input %>%
 
 model <- keras_model(input, output)
 ```
+
 
  
 ### compile the model 
@@ -495,6 +540,21 @@ model %>% save_model_tf("my_model")
 ```{r}
 list.files("saved_model.pb")
 new_model <- load_model_tf("my_model")
-summary(new_model)
 ```
 
+```{r}
+id <- 9
+amount <-10
+
+prediction <- predict(new_model,testing$text[id])[1,]
+
+top_val <- prediction[order(prediction)]%>%rev() %>%head(amount) %>% round(3)
+top_ids <- order(prediction) %>% rev() %>% head(amount)
+
+top_emoji <- emoji_dict[top_ids]
+top_prediction <- cbind(top_emoji,top_val)
+
+print(paste("text:",testing$text[id]))
+print(paste("true:",testing$emoji[id]))
+print(top_prediction)
+```
