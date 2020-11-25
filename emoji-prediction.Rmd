@@ -2,7 +2,9 @@
 title: "Emoji prediction"
 author: "Tijs Van den Heuvel"
 date: "10/15/2020"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r setup, include=FALSE}
@@ -40,13 +42,13 @@ I transformed this data into a data table with the use of PySpark and regex in t
 
 ### mini set
 
-```{r eval = FALSE}
+```{r eval=FALSE}
 tweetDT <- fread("./data/165tweets.csv")
 ```
 
 ### dev set (1.3 mil)
 
-```{r eval = FALSE}
+```{r eval=FALSE}
 tweetDT <- fread("./data/dev.csv")
 ```
 
@@ -55,7 +57,7 @@ tweetDT <- fread("./data/dev.csv")
 - already split into training and test set
 - unpractical for cleansing and one hot encoding of output
 
-```{r eval = TRUE}
+```{r eval=TRUE}
 trainDT <- fread("./data/train.csv")
 testDT <- fread("./data/test.csv")
 tweetDT=rbind(trainDT,testDT)
@@ -93,14 +95,14 @@ tweetDT<- tweetDT[tweetDT$text!='',]
 tweetDT[sample(1:.N,5)]
 ``` 
 
-## inspect tweet size
+## inspect tweets
 
 ```{r}
 tweetDT$text %>% strsplit(" ") %>% sapply(length) %>% summary()
 ```
 
 ```{r}
-tweetDT$text %>% strsplit(" ") %>% sapply(length) %>% density(adjust = 2) %>%plot()
+tweetDT$text %>% strsplit(" ") %>% sapply(length) %>% hist(breaks=55) 
 ```
 ### total vocabulary size
 
@@ -115,6 +117,16 @@ this will be the size of the output layer of the network
 emoji_count <- unique(tweetDT$emoji)%>%length()
 emoji_count
 ```
+### how many tweets per emoji
+
+```{r}
+emoji_freq<-as.data.frame(table(tweetDT$emoji))
+
+top <- emoji_freq$Freq%>%order()%>%rev()%>%head(10)
+
+emoji_freq[top,]
+```
+
 ## Text classification with Tensorflow
 
 I started from this tensorflow [tutorial](https://tensorflow.rstudio.com/tutorials/beginners/basic-ml/tutorial_basic_text_classification/)
@@ -123,7 +135,7 @@ I started from this tensorflow [tutorial](https://tensorflow.rstudio.com/tutoria
 - the output is the emoji
 - a neural network takes in tensors and not text so I needed to prepare the data
 
-```{r  message=FALSE, warning=FALSE}
+```{r message=FALSE}
 library(keras)
 library(dplyr)
 library(ggplot2)
@@ -141,7 +153,7 @@ library(purrr)
   - use an embedding layer capable of handling this shape as first layer
 - `adapt` the text vectorization layer to learn about the data set vocabulary
 
-```{r message=FALSE}
+```{r message=FALSE,warning=FALSE,include=FALSE,cache=TRUE}
 num_words <- 10000
 max_length <- 32 
 text_vectorization <- layer_text_vectorization(
@@ -291,7 +303,7 @@ tested with 60 units layers
 - 1 layer: 25.15%
 - 2 layers: 24.58%
 
-```{r eval=FALSE}
+```{r eval=FALSE,warning=FALSE}
 input <- layer_input(shape = c(1), dtype = "string")
 
 output <- input %>% 
@@ -326,7 +338,7 @@ which makes the computation a lot slower
 - accuracy: 26.15% (10 epochs)
 
 
-```{r}
+```{r eval=FALSE}
 input <- layer_input(shape = c(1), dtype = "string")
 
 output <- input %>% 
@@ -346,7 +358,7 @@ compare to cudnn without recurrent dropout
 - 6.5 minutes / epoch
 - accuracy: 26.78% (11 epochs)
 
-```{r}
+```{r eval=FALSE}
 input <- layer_input(shape = c(1), dtype = "string")
 
 output <- input %>% 
@@ -426,7 +438,7 @@ model <- keras_model(input, output)
 - accuracy 27.82%
 
 
-```{r}
+```{r message=TRUE, warning=FALSE}
 input <- layer_input(shape = c(1), dtype = "string")
 
 output <- input %>% 
@@ -451,7 +463,7 @@ no improvement, much slower
 - overfits in 5 epochs
 - accuracy 27.27%
 
-```{r}
+```{r eval=FALSE}
 input <- layer_input(shape = c(1), dtype = "string")
 
 output <- input %>% 
@@ -537,16 +549,21 @@ print(top_prediction)
 model %>% save_model_tf("my_model")
 ```
 
-```{r}
+## load model
+
+```{r include=FALSE}
 list.files("saved_model.pb")
 new_model <- load_model_tf("my_model")
 ```
+
+### single prediction
 
 ```{r}
 id <- 9
 amount <-10
 
-prediction <- predict(new_model,testing$text[id])[1,]
+prediction <- predict(new_model,"hello")[1,]
+#prediction <- predict(new_model,testing$text[id])[1,]
 
 top_val <- prediction[order(prediction)]%>%rev() %>%head(amount) %>% round(3)
 top_ids <- order(prediction) %>% rev() %>% head(amount)
@@ -558,3 +575,122 @@ print(paste("text:",testing$text[id]))
 print(paste("true:",testing$emoji[id]))
 print(top_prediction)
 ```
+
+## accuracy distribution
+
+of all predictions, which percentage is correct
+
+```{r}
+emoji_to_int<- function(emoji){
+  return(which(emoji_dict==emoji))
+}
+emojint<- sapply(testing$emoji,emoji_to_int)
+test_emojint<-cbind(testing,emojint)
+```
+
+10: 0.6s
+100: 5s
+1000: 44s
+2000: 110s
+
+```{r}
+
+time1<-Sys.time()
+
+make_pred <- function(dt){
+  dt<- as.list(dt)
+  id<-predict(new_model,dt$text)[1,]%>%which.max()
+  if(dt$emojint==id){return(1)}
+  return(0)
+}
+
+pred_set <- test_emojint[sample(1:.N,2000)]
+
+pred1 <- apply(pred_set,1,make_pred)
+
+time <- Sys.time()-time1
+time
+```
+
+```{r}
+perc<-Reduce("+",pred1)/length(pred1)
+perc
+```
+
+
+## individual word emoji prediction
+
+Make prediction for every word individually in text vectorization vocabulary.
+
+Any prediction on one word gives the same emojis.
+
+Here it is illustrated with five random words from voc, this is also true for words not in voc. 
+
+The model has learned correlation between length and emoji.
+
+```{r}
+model_voc <- get_vocabulary(text_vectorization)
+
+id<- c(1,50,100,3456,9999)
+
+predict_pos <- function(id,pos) {
+   pred<-predict(new_model,model_voc[id])[1,]%>% order()%>%rev()%>%head(pos)
+   return(pred[pos])
+}
+
+print("first")
+sapply(id,predict_pos,pos=1)
+print("second")
+sapply(id,predict_pos,pos=2)
+print("third")
+sapply(id,predict_pos,pos=3)
+print("fourth")
+sapply(id,predict_pos,pos=4)
+print("fifth")
+sapply(id,predict_pos,pos=5)
+
+print("top predicted emoji by single word")
+emoji_dict[sapply(c(1:5),predict_pos,id=1)]
+
+
+```
+
+## tweet sentiment emoji correlation
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
