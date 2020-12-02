@@ -42,13 +42,13 @@ I transformed this data into a data table with the use of PySpark and regex in t
 
 ### mini set
 
-```{r eval=FALSE}
+```{r load mini dataset, eval=FALSE}
 tweetDT <- fread("./data/165tweets.csv")
 ```
 
 ### dev set (1.3 mil)
 
-```{r eval=FALSE}
+```{r load dev dataset, eval=FALSE}
 tweetDT <- fread("./data/dev.csv")
 ```
 
@@ -57,7 +57,7 @@ tweetDT <- fread("./data/dev.csv")
 - already split into training and test set
 - unpractical for cleansing and one hot encoding of output
 
-```{r eval=TRUE}
+```{r load full dataset, eval=TRUE}
 trainDT <- fread("./data/train.csv")
 testDT <- fread("./data/test.csv")
 tweetDT=rbind(trainDT,testDT)
@@ -65,7 +65,7 @@ tweetDT=rbind(trainDT,testDT)
 
 ## a sample of the input data
 
-```{r}
+```{r sample of raw input}
 tweetDT[sample(1:.N,5)]
 ```
 
@@ -80,7 +80,7 @@ tweetDT[sample(1:.N,5)]
 
 > some of these steps could remove too much information, can be revised
 
-```{r}
+```{r clean tweet text}
 tweetDT$text<-gsub('[^\x01-\x7F]',' ',tweetDT$text)
 tweetDT$text<-gsub('[0-9]+',' ',tweetDT$text)
 tweetDT$text<-gsub('\\s+',' ',tweetDT$text)
@@ -91,35 +91,38 @@ tweetDT<- tweetDT[tweetDT$text!='',]
 
 ## a sample of the cleaned tweets
 
-```{r}
+```{r sample of clean text}
 tweetDT[sample(1:.N,5)]
 ``` 
 
 ## inspect tweets
 
-```{r}
+```{r tweet length summary}
 tweetDT$text %>% strsplit(" ") %>% sapply(length) %>% summary()
 ```
 
-```{r}
-tweetDT$text %>% strsplit(" ") %>% sapply(length) %>% hist(breaks=55) 
+```{r tweet length plot}
+tweetDT$text %>% strsplit(" ") %>% sapply(length) %>% hist(breaks=55,main="Distribution of words per tweet") 
 ```
 ### total vocabulary size
 
-```{r}
+full 613994
+lemmatized 529416
+
+```{r how many different words}
 tweetDT$text %>% strsplit(" ") %>% as.list() %>% unlist() %>% unique() %>%length()
 ```
 ### emoji count
 
 this will be the size of the output layer of the network
 
-```{r}
+```{r how many different emojis}
 emoji_count <- unique(tweetDT$emoji)%>%length()
 emoji_count
 ```
 ### how many tweets per emoji
 
-```{r}
+```{r how many tweets per emoji}
 emoji_freq<-as.data.frame(table(tweetDT$emoji))
 
 top <- emoji_freq$Freq%>%order()%>%rev()%>%head(10)
@@ -135,12 +138,13 @@ I started from this tensorflow [tutorial](https://tensorflow.rstudio.com/tutoria
 - the output is the emoji
 - a neural network takes in tensors and not text so I needed to prepare the data
 
-```{r message=FALSE}
+```{r setup tensorflow message=FALSE}
 library(keras)
 library(dplyr)
 library(ggplot2)
 library(purrr)
 ```
+
 
 ### prepare the input data
 
@@ -153,9 +157,9 @@ library(purrr)
   - use an embedding layer capable of handling this shape as first layer
 - `adapt` the text vectorization layer to learn about the data set vocabulary
 
-```{r message=FALSE,warning=FALSE,include=FALSE,cache=TRUE}
+```{r adapt text vectorization layer ,include=FALSE,cache=TRUE}
 num_words <- 10000
-max_length <- 32 
+max_length <- 20
 text_vectorization <- layer_text_vectorization(
   max_tokens = num_words, 
   output_sequence_length = max_length, 
@@ -163,18 +167,38 @@ text_vectorization <- layer_text_vectorization(
 text_vectorization %>% adapt(tweetDT$text)
 ```
 
+### compare max_length variations
+
+- num words = 10000
+- layer size = 192(input),192(dense),192
+- 20 epochs
+
+highscore 
+
+- max_length=32
+- 9.8 minutes / epoch
+- accuracy 27.89
+
+- max_length = 25
+- 7.6 minutes / epoch
+- accuracy 27.88 (27.91 on test)
+
+- max_length = 20
+- 6.3 minutes / epoch
+- accuracy 27.82 (27.85 on test)
+
 #### text vectorization insight
 
 vocabulary sample
 
-```{r eval=FALSE}
-get_vocabulary(text_vectorization)%>%sample(10)
+```{r the used vocabulary, eval=FALSE}
+get_vocabulary(text_vectorization)%>%sample(100)
 ```
 
 how text vectorization layer transforms input
 
-```{r eval=FALSE}
-text_vectorization(matrix(tweetDT$text[1], ncol = 1))
+```{r how the text vectorization transforms the input, eval=FALSE}
+text_vectorization(matrix(tweetDT$text[7], ncol = 1))
 ```
 
 ### prepare the output data
@@ -186,7 +210,7 @@ text_vectorization(matrix(tweetDT$text[1], ncol = 1))
 - first column is entirely empty so I remove it
 - create an emoji dictionary to find which number maps to which emoji after prediction
 
-```{r}
+```{r vectorize emoji as one hot}
 emoji_int <- match(tweetDT$emoji,unique(tweetDT$emoji))
 
 one_hot_emoji <- to_categorical(emoji_int)
@@ -200,7 +224,7 @@ emoji_dict <- tweetDT$emoji%>%unique()
 - 80% training, 20% testing
 - division arbitrarily chosen
 
-```{r}
+```{r split data in test and training set}
 training_id <- sample.int(nrow(tweetDT), size = nrow(tweetDT)*0.8)
 training <- tweetDT[training_id,]
 testing <- tweetDT[-training_id,]
@@ -209,6 +233,46 @@ oh_test <- one_hot_emoji[-training_id,]
 
 nrow(training)
 nrow(testing)
+```
+
+### check effect of stemming
+
+Stemming reduces the amount of different words.
+
+This would mean that the information in the 10,000 words of the text vectorization layer is more dense.
+
+Let's see if this has an impact on model performance
+
+1. stem
+2. text vectorization
+3. split data 
+4. train model
+5. compare to score without stemming
+
+- num words = 10000
+- layer size = 192(input),192(dense),192
+
+NO stemming
+
+- 10.5 minutes / epoch
+- overfits in +15 epochs
+- accuracy 27.82%
+
+WITH stemming
+
+- 9.8 minutes / epoch
+- overfits in 20 epochs
+- accuracy 27.82% after 15, 27.89 after 20
+
+
+```{r apply stemmer}
+library(tm)
+
+tweetDT$text <- stemDocument(tweetDT$text)
+```
+
+```{r sample stemmed text}
+tweetDT[sample(1:.N,10)]$text
 ```
 
 ### design the model
@@ -233,7 +297,7 @@ nrow(testing)
 
 initial FFA from tutorial:
 
-```{r eval = FALSE}
+```{r base FFA, eval = FALSE}
 input <- layer_input(shape = c(1), dtype = "string")
 
 output <- input %>% 
@@ -267,7 +331,7 @@ how many units per layer?
 - 70,60 units: 24.68%
 - 80,70 units: 24.56%
 
-```{r eval=FALSE}
+```{r best FFA, eval=FALSE}
 input <- layer_input(shape = c(1), dtype = "string")
 
 output <- input %>% 
@@ -303,7 +367,7 @@ tested with 60 units layers
 - 1 layer: 25.15%
 - 2 layers: 24.58%
 
-```{r eval=FALSE,warning=FALSE}
+```{r LSTM, eval=FALSE,warning=FALSE}
 input <- layer_input(shape = c(1), dtype = "string")
 
 output <- input %>% 
@@ -338,7 +402,7 @@ which makes the computation a lot slower
 - accuracy: 26.15% (10 epochs)
 
 
-```{r eval=FALSE}
+```{r first GRU, eval=FALSE}
 input <- layer_input(shape = c(1), dtype = "string")
 
 output <- input %>% 
@@ -358,7 +422,7 @@ compare to cudnn without recurrent dropout
 - 6.5 minutes / epoch
 - accuracy: 26.78% (11 epochs)
 
-```{r eval=FALSE}
+```{r best one layer GRU, eval=FALSE}
 input <- layer_input(shape = c(1), dtype = "string")
 
 output <- input %>% 
@@ -432,13 +496,13 @@ model <- keras_model(input, output)
 - accuracy 27.26 %
 
 - num words = 10000
-- layer size = 192(dense),192,192
+- layer size = 192(input),192(dense),192
 - 10.5 minutes / epoch
 - overfits in +15  epochs
 - accuracy 27.82%
 
 
-```{r message=TRUE, warning=FALSE}
+```{r best model, message=TRUE, warning=FALSE}
 input <- layer_input(shape = c(1), dtype = "string")
 
 output <- input %>% 
@@ -463,7 +527,7 @@ no improvement, much slower
 - overfits in 5 epochs
 - accuracy 27.27%
 
-```{r eval=FALSE}
+```{r bidirctional GRU, eval=FALSE}
 input <- layer_input(shape = c(1), dtype = "string")
 
 output <- input %>% 
@@ -476,13 +540,12 @@ output <- input %>%
 model <- keras_model(input, output)
 ```
 
-
  
 ### compile the model 
 
 the tutorial uses binary_crossentropy but our variables are categorical
 
-```{r}
+```{r compile the model}
 model %>% compile(
   optimizer = 'adam',
   loss = 'categorical_crossentropy',
@@ -492,41 +555,41 @@ model %>% compile(
 
 ### Train the model
 
-```{r}
+```{r start timer}
 t1<-Sys.time()
 ```
 
-```{r}
+```{r training}
 history <- model %>% fit(
   training$text,
   oh_train,
-  epochs = 15,
+  epochs = 20,
   batch_size = 1660, 
- #batch_size = 512, #cpu  
+ #batch_size = 512, #cpu   
   validation_split = 0.2,
   verbose=2
 ) 
 ```
 
-```{r}
+```{r stop timer}
 time <- Sys.time()-t1
 time
 ```
 
-```{r eval=FALSE}
+```{r plot training history, eval=FALSE}
 plot(history)
 ```
 
 ### evaluate model
 
-```{r}
+```{r evaluate model}
 results <- model %>% evaluate(testing$text, oh_test, verbose = 0)
 results
 ```
 
 ### single prediction
 
-```{r}
+```{r single prediction}
 id <- 9
 amount <-10
 
@@ -545,42 +608,24 @@ print(top_prediction)
 
 ### save model
 
-```{r eval = FALSE}
+```{r save model, eval = FALSE}
 model %>% save_model_tf("my_model")
 ```
 
-## load model
+### load model
 
-```{r include=FALSE}
+```{r load model, include=FALSE}
 list.files("saved_model.pb")
 new_model <- load_model_tf("my_model")
 ```
 
-### single prediction
 
-```{r}
-id <- 9
-amount <-10
-
-prediction <- predict(new_model,"hello")[1,]
-#prediction <- predict(new_model,testing$text[id])[1,]
-
-top_val <- prediction[order(prediction)]%>%rev() %>%head(amount) %>% round(3)
-top_ids <- order(prediction) %>% rev() %>% head(amount)
-
-top_emoji <- emoji_dict[top_ids]
-top_prediction <- cbind(top_emoji,top_val)
-
-print(paste("text:",testing$text[id]))
-print(paste("true:",testing$emoji[id]))
-print(top_prediction)
-```
 
 ## accuracy distribution
 
 of all predictions, which percentage is correct
 
-```{r}
+```{r add column with emoji as int}
 emoji_to_int<- function(emoji){
   return(which(emoji_dict==emoji))
 }
@@ -593,7 +638,7 @@ test_emojint<-cbind(testing,emojint)
 1000: 44s
 2000: 110s
 
-```{r}
+```{r manual evaluation setup}
 
 time1<-Sys.time()
 
@@ -612,7 +657,7 @@ time <- Sys.time()-time1
 time
 ```
 
-```{r}
+```{r manual evaluation}
 perc<-Reduce("+",pred1)/length(pred1)
 perc
 ```
@@ -628,7 +673,7 @@ Here it is illustrated with five random words from voc, this is also true for wo
 
 The model has learned correlation between length and emoji.
 
-```{r}
+```{r predict emoji from a single word}
 model_voc <- get_vocabulary(text_vectorization)
 
 id<- c(1,50,100,3456,9999)
