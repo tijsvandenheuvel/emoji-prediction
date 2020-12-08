@@ -58,9 +58,7 @@ tweetDT <- fread("./data/dev.csv")
 - unpractical for cleansing and one hot encoding of output
 
 ```{r load full dataset, eval=TRUE}
-trainDT <- fread("./data/train.csv")
-testDT <- fread("./data/test.csv")
-tweetDT=rbind(trainDT,testDT)
+tweetDT=rbind(fread("./data/train.csv"),fread("./data/test.csv"))
 ```
 
 ## a sample of the input data
@@ -71,21 +69,19 @@ tweetDT[sample(1:.N,5)]
 
 ## Clean the tweet text
 
-- remove all non ascii characters
-- remove numbers 
-- merge multiple spaces
-- remove trailing spaces
 - to lower case
-- remove empty tweets (tweets that were only non ascii and numbers)
+- keep only letters a-z
+- (merge multiple spaces)
+- (remove trailing spaces)
+- remove empty tweets
 
 > some of these steps could remove too much information, can be revised
 
 ```{r clean tweet text}
-tweetDT$text<-gsub('[^\x01-\x7F]',' ',tweetDT$text)
-tweetDT$text<-gsub('[0-9]+',' ',tweetDT$text)
-tweetDT$text<-gsub('\\s+',' ',tweetDT$text)
-tweetDT$text<-gsub(' $','',tweetDT$text)
 tweetDT$text<-tolower(tweetDT$text)
+tweetDT$text<-gsub('[^a-z]+',' ',tweetDT$text)
+#tweetDT$text<-gsub('\\s+',' ',tweetDT$text)
+#tweetDT$text<-gsub(' $','',tweetDT$text)
 tweetDT<- tweetDT[tweetDT$text!='',]
 ```
 
@@ -120,6 +116,7 @@ this will be the size of the output layer of the network
 emoji_count <- unique(tweetDT$emoji)%>%length()
 emoji_count
 ```
+
 ### how many tweets per emoji
 
 ```{r how many tweets per emoji}
@@ -157,7 +154,7 @@ library(purrr)
   - use an embedding layer capable of handling this shape as first layer
 - `adapt` the text vectorization layer to learn about the data set vocabulary
 
-```{r adapt text vectorization layer ,include=FALSE,cache=TRUE}
+```{r adapt text vectorization layer ,include=FALSE}
 num_words <- 10000
 max_length <- 20
 text_vectorization <- layer_text_vectorization(
@@ -615,8 +612,7 @@ model %>% save_model_tf("my_model")
 ### load model
 
 ```{r load model, include=FALSE}
-list.files("saved_model.pb")
-new_model <- load_model_tf("my_model")
+new_model <- load_model_tf("saved_model")
 ```
 
 
@@ -624,6 +620,8 @@ new_model <- load_model_tf("my_model")
 ## accuracy distribution
 
 of all predictions, which percentage is correct
+
+add column of prediction to DT
 
 ```{r add column with emoji as int}
 emoji_to_int<- function(emoji){
@@ -637,6 +635,29 @@ test_emojint<-cbind(testing,emojint)
 100: 5s
 1000: 44s
 2000: 110s
+
+```{r}
+col<- predict(new_model,test_emojint$text)
+```
+
+```{r}
+top_emoji <- apply(col,1,which.max)
+```
+
+```{r}
+check_set = cbind(test_emojint$emojint,top_emoji)
+```
+
+```{r}
+
+foo<- function(x){
+  if(length(unique(x))==1){return(TRUE)}
+  return(FALSE)
+}
+
+table(apply(check_set,1,foo))
+```
+
 
 ```{r manual evaluation setup}
 
@@ -673,7 +694,7 @@ Here it is illustrated with five random words from voc, this is also true for wo
 
 The model has learned correlation between length and emoji.
 
-```{r predict emoji from a single word}
+```{r predict emoji from a single word,eval=false}
 model_voc <- get_vocabulary(text_vectorization)
 
 id<- c(1,50,100,3456,9999)
@@ -700,17 +721,153 @@ emoji_dict[sapply(c(1:5),predict_pos,id=1)]
 
 ```
 
-## tweet sentiment emoji correlation
+## ngrams
+
+```{r message=FALSE}
+library(quanteda)
+```
+
+3gramming runs in 8 minutes
+
+4gramming runs in 2 minutes
+
+```{r}
+t1<-Sys.time()
+
+clean<-function(tweet){
+  return(paste(tweet,collapse=' '))
+}
+
+gram<- tokens(tweetDT$text,"character") %>% tokens_ngrams(n=4,concatenator='')%>%lapply(clean)
+
+tweetDT<- cbind(tweetDT,as.character(gram))
+
+rm(gram)
+
+Sys.time()-t1
+```
+
+
+```{r tweet length summary}
+tweetDT$V2 %>% strsplit(" ") %>% sapply(length) %>% summary()
+```
+
+```{r tweet length plot}
+tweetDT$V2 %>% strsplit(" ") %>% sapply(length) %>% hist(breaks=162,main="Distribution of ngrams per tweet") 
+```
+
+there are 16625 different 3grams in the dev set
+there are 229941 different 4grams in the dev set
+
+
+```{r how many different ngrams}
+tweetDT$V2 %>% strsplit(" ") %>% as.list() %>% unlist() %>% unique() %>%length()
+```
+
+## machine learning
+
+```{r setup tensorflow message=FALSE}
+library(keras)
+library(dplyr)
+library(ggplot2)
+library(purrr)
+```
+
+
+```{r how many different emojis}
+emoji_count <- unique(tweetDT$emoji)%>%length()
+emoji_count
+```
+
+```{r vectorize emoji as one hot}
+one_hot_emoji <- match(tweetDT$emoji,unique(tweetDT$emoji))%>%to_categorical()
+one_hot_emoji <- one_hot_emoji[,2:(emoji_count+1)]
+
+emoji_dict <- tweetDT$emoji%>%unique()
+```
+
+```{r adapt text vectorization layer ,include=FALSE,cache=TRUE}
+num_words <- 10000
+max_length <- 100
+text_vectorization <- layer_text_vectorization(
+  max_tokens = num_words, 
+  output_sequence_length = max_length
+  )
+text_vectorization %>% adapt(tweetDT$V2)
+```
+
+```{r the used vocabulary, eval=FALSE}
+get_vocabulary(text_vectorization)%>%sample(100)
+```
+
+```{r split data in test and training set}
+training_id <- sample.int(nrow(tweetDT), size = nrow(tweetDT)*0.8)
+training <- tweetDT[training_id,]
+testing <- tweetDT[-training_id,]
+oh_train <-one_hot_emoji[training_id,]
+oh_test <- one_hot_emoji[-training_id,]
+
+nrow(training)
+nrow(testing)
+```
+
+GPU memory cant handle bigger model nor the full dataset
+
+- i: input
+- d: dense
+- g: gru
+
+3-gram: 
+
+- 100i,192d,192g (5 epochs) 24.35%
+- 100i,222d,222g (380s x 6 epochs) 24.59%
+- 100i,128d,128g,128g (560s x 10 epochs)  24.57%
+
+4-gram:
+
+- 100i,192d,192g (360s x 6) 24.64%
 
 
 
+```{r best model, message=TRUE, warning=FALSE}
+input <- layer_input(shape = c(1), dtype = "string")
 
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = num_words + 1, output_dim = 192) %>%
+  layer_dense(units=192)%>%
+  layer_dropout(0.4)%>%
+  layer_gru(units = 192)%>%
+  layer_dropout(0.5) %>% 
+  layer_dense(units = emoji_count, activation = "softmax")
 
+model <- keras_model(input, output)
+```
 
+```{r compile the model}
+model %>% compile(
+  optimizer = 'adam',
+  loss = 'categorical_crossentropy',
+  metrics = list('accuracy')
+)
+```
 
+```{r training}
+history <- model %>% fit(
+  training$V2,
+  oh_train,
+  epochs = 10,
+  batch_size = 1660, 
+ #batch_size = 512, #cpu   
+  validation_split = 0.2,
+  verbose=2
+) 
+```
 
-
-
+```{r evaluate model}
+results <- model %>% evaluate(testing$V2, oh_test, verbose = 0)
+results
+```
 
 
 
