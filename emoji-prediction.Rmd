@@ -1,7 +1,7 @@
 ---
-title: "Emoji prediction"
+title: "Emoji prediction based on tweet text"
 author: "Tijs Van den Heuvel"
-date: "10/15/2020"
+date: "Published on `r Sys.Date()`"
 output:
   html_document:
     df_print: paged
@@ -17,9 +17,13 @@ library(data.table)
 
 # Tweet analysis and emoji prediction
 
-The goal of this project is to predict an emoji based on text.
+This report describes the results of a research to predict emotion from tweets. 
 
-When looking for similar projects, they get to an accuracy of 33%, this will be the succes criteria
+More in particular the goal of this project was to predict an emoji based on text from a tweet.
+
+When looking for similar projects, they get to an accuracy of 33%, this will be the success criterion.
+
+> [emoji-prediction](https://github.com/vedantpuri/emoji-prediction) _Vedant Puri_, _Shubham Mehta_ (2018) 
 
 It would be great if an algorithm could suggest some emojis based on a different piece of text.
 
@@ -38,15 +42,7 @@ I transformed this data into a data table with the use of PySpark and regex in t
 - Then I created R code to construct a model with a 165 tweets set
 - When that model worked (with an accuracy of 18%) I proceeded to fix the pre-processor to convert the entire data set
 
-## load data 
-
-### mini set
-
-Use this data set if you want to check or develop some steps really quickly
-
-```{r load mini dataset, eval=FALSE}
-tweetDT <- fread("./data/165tweets.csv")
-```
+## read the data 
 
 ### dev set 
 
@@ -54,7 +50,7 @@ This set was used for most of the development of this notebook.
 
 This set contains 1.3 million tweets
 
-```{r load dev dataset, eval=FALSE}
+```{r load-dev-dataset, eval=FALSE}
 tweetDT <- fread("./data/dev.csv")
 ```
 
@@ -66,18 +62,20 @@ The data was already split into a training and a test set but this is unpractica
 
 so it is added together and split later.
 
-```{r load full dataset, eval=TRUE}
-tweetDT=rbind(fread("./data/train.csv"),fread("./data/test.csv"))
+```{r load-full-dataset, eval=TRUE}
+tweetDT <- rbind( fread("./data/train.csv"), fread("./data/test.csv") )
 ```
 
-## a sample of the input data
+## prepare the data
 
-```{r sample of raw input}
-smpl <- sample.int(nrow(tweetDT),5)
+### a sample of the input data
+
+```{r raw-input-sample}
+smpl <- sample.int( nrow(tweetDT), 5 )
 tweetDT[smpl]
 ```
 
-## Clean the tweet text
+### Clean the tweet text
 
 There are a lot of weird characters in the tweet text.
 
@@ -85,34 +83,33 @@ They are removed for simplicity, since we want to focus on the actual words.
 
 - convert all text to lowercase
 - only keep letters a-z
-- remove empty tweets
 
-```{r clean tweet text}
-tweetDT$text<-tolower(tweetDT$text)
-tweetDT$text<-gsub('[^a-z]+',' ',tweetDT$text)
-tweetDT<- tweetDT[tweetDT$text!='',]
+```{r tweet-text-cleaning}
+tweetDT[, text := text %>% tolower]
+tweetDT$text <- gsub( '[^a-z]+', ' ', tweetDT$text )
 ```
 
-## a sample of the cleaned tweets
+### a sample of the cleaned tweets
 
-```{r sample of clean text}
+```{r clean-text-sample}
 tweetDT[smpl]
 ``` 
 
-## inspect tweets
+## data exploration
 
 Here we examine how many words there are per tweet.
 
 This is important to determine the size of the input layer, which will be a text vectorization.
 
-The eventual decided length is 20 words per tweet since most tweets have few words and longer tweet size requires more computation.
+The eventual decided length is 20 words per tweet since most tweets have fewer words and longer tweet size requires more computation.
 
-```{r tweet length summary}
-tweetDT$text %>% strsplit(" ") %>% sapply(length) %>% summary()
+```{r tweet-length-summary}
+text_as_list_of_words <- tweetDT$text %>% strsplit(" ") 
+text_as_list_of_words %>% sapply(length) %>% summary
 ```
 
-```{r tweet length plot}
-tweetDT$text %>% strsplit(" ") %>% sapply(length) %>% v
+```{r tweet-length-plot}
+text_as_list_of_words %>% sapply(length) %>% hist( breaks=55, main="Distribution of words per tweet" ) 
 ```
 
 ### total vocabulary size
@@ -125,8 +122,9 @@ This is just an exploratory step.
 
 It is useful for observing the effect of stemming which reduces the total amount of different words from 613,993 words to 529,416
 
-```{r how many different words}
-tweetDT$text %>% strsplit(" ") %>% as.list() %>% unlist() %>% unique() %>%length()
+```{r word-count}
+text_as_list_of_words %>% unlist %>% unique %>% length
+#rm(text_as_list_of_words)
 ```
 
 ### emoji count
@@ -135,8 +133,8 @@ Here we count the amount of different emoji's.
 
 this will determine the size of the output layer of the network.
 
-```{r how many different emojis}
-emoji_count <- unique(tweetDT$emoji)%>%length()
+```{r emoji-count}
+emoji_count <- unique( tweetDT$emoji ) %>% length
 emoji_count
 ```
 
@@ -144,29 +142,30 @@ emoji_count
 
 In this last exploratory step we look at the distribution of tweets per emoji.
 
-In the ideal situation we would have 6170786/49 = 125,934 tweets per emoji
+In the most balanced situation we would have 6170786/49 = 125,934 tweets per emoji
 
-The most popular emoji 'face_with_tears_of_joy' has over a million tweets.
+The most popular emoji `emoji_freq[emoji_freq$Freq%>%order%>%rev%>%head(1),]` has `max(emoji_freq$Freq)` tweets.
 
-The least popular emoji 'heavy_check_mark' has only 23.5 thousand tweets.
+The least popular emoji `emoji_freq[emoji_freq$Freq%>%order%>%head(1),]` has only `min(emoji_freq$Freq)` tweets.
 
 The Median is lower than the Mean, this means that most tweets have fewer emoji's than the average.
 
-```{r average number of tweets per emoji}
+```{r average-amount-of-tweets-per-emoji}
 emoji_freq<-as.data.frame(table(tweetDT$emoji))
 
-emoji_freq$Freq%>%summary()
+emoji_freq$Freq%>%summary
 ```
+
 Here we see which tweets exactly are to most and least common.
 
 This can be referenced when checking the validity of made predictions.
 
 If the model predicts 'face_with_tears_of_joy' every time it would score an accuracy of 16.37%.
 
-```{r how many tweets per emoji}
-bottom <- emoji_freq$Freq%>%order()%>%head(10)
+```{r amount-of-tweets-per-emoji}
+bottom <- emoji_freq$Freq%>%order%>%head(10)
 
-top <- emoji_freq$Freq%>%order()%>%rev()%>%head(10)
+top <- emoji_freq$Freq%>%order%>%rev%>%head(10)
 
 emoji_freq[top,]
 
@@ -174,23 +173,23 @@ emoji_freq[bottom,]
 ```
 Here we see that some emoji's have a lot more tweets, but most emoji's have a proportionate amount
 
-```{r Distribution of tweets per emoji}
-emoji_freq$Freq%>%sort()%>%rev()%>%plot(main="Distribution of tweets per emoji") 
+```{r}
+tweetDT$emoji %>% table %>% sort %>% rev %>% barplot
 ```
-
 
 ## Text classification with TensorFlow
 
-Let's build a model to predict which tweet goes with which emoji
+Let's build a model to predict which tweet goes with which emoji.
 
 I started from this TensorFlow [tutorial](https://tensorflow.rstudio.com/tutorials/beginners/basic-ml/tutorial_basic_text_classification/)
 
-- the input is the text of the tweet
-- the output is the emoji
+The input is the text of the tweet.
+
+The output is the emoji from that tweet.
 
 A neural network takes in tensors and not text so the data needed to be prepared.
 
-```{r setup tensorflow, message=FALSE}
+```{r tensorflow-setup, message=FALSE}
 library(keras)
 library(dplyr)
 library(ggplot2)
@@ -216,7 +215,7 @@ since this is a built-in TensorFlow function we can use the standard keras embed
 
 the size of 10,000 was experimentally chosen to be the most effective amount for accuracy/ computation.
 
-```{r adapt text vectorization layer ,include=FALSE}
+```{r adapt-text-vectorization-layer ,include=FALSE}
 num_words <- 10000
 max_length <- 20
 text_vectorization <- layer_text_vectorization(
@@ -228,33 +227,26 @@ text_vectorization %>% adapt(tweetDT$text)
 
 #### compare max_length variations
 
-- num words: 10000
+- amount of words: 10000
 - model size: 192(input),192(dense),192(gru)
 - 20 epochs
 
-- max_length: 32
-- 9.8 minutes/epoch
-- accuracy 27.89
-
-- max_length = 25
-- 7.6 minutes/epoch
-- accuracy 27.88 (27.91 on test)
-
-- max_length = 20
-- 6.3 minutes/epoch
-- accuracy 27.82 (27.85 on test)
+|max_length | minutes/epoch | accuracy|
+|32|9.8|27.89|
+|25|7.6|27.91|
+|20|6.3|27.85|
 
 #### text vectorization insight
 
 Here you can see a sample of the vocabulary used by the text vectorization layer.
 
-```{r the used vocabulary, eval=FALSE}
-get_vocabulary(text_vectorization)%>%sample(100)
+```{r the-used-vocabulary, eval=FALSE}
+get_vocabulary( text_vectorization ) %>% sample(100)
 ```
 
 Here is shown how the text vectorization layer transforms the input
 
-```{r how the text vectorization transforms the input}
+```{r text-vectorization-input-transformation}
 tweetDT$text[7]
 
 text_vectorization(matrix(tweetDT$text[7], ncol = 1))
@@ -274,13 +266,13 @@ The first column is entirely empty so we remove it.
 
 Create an emoji dictionary to find which number maps to which emoji after prediction.
 
-```{r vectorize emoji as one hot}
-emoji_int <- match(tweetDT$emoji,unique(tweetDT$emoji))
+```{r vectorize-emoji-as-one-hot}
+emoji_int <- match(tweetDT$emoji, unique(tweetDT$emoji))
 
 one_hot_emoji <- to_categorical(emoji_int)
-one_hot_emoji <- one_hot_emoji[,2:(emoji_count+1)]
+one_hot_emoji <- one_hot_emoji[, 2:(emoji_count+1)]
 
-emoji_dict <- tweetDT$emoji%>%unique()
+emoji_dict <- tweetDT$emoji %>% unique
 ```
 
 ### split the dataset into training & testing
@@ -289,16 +281,291 @@ Here we split the data in to a training and testing set.
 
 The division is 80% training and 20% testing, and is arbitrarily chosen.
 
-```{r split data in test and training set}
-training_id <- sample.int(nrow(tweetDT), size = nrow(tweetDT)*0.8)
-training <- tweetDT[training_id,]
-testing <- tweetDT[-training_id,]
-oh_train <-one_hot_emoji[training_id,]
-oh_test <- one_hot_emoji[-training_id,]
+```{r split-data-in-test-and-training-set}
+training_id <- sample.int( nrow(tweetDT), size = nrow(tweetDT)*0.8 )
+training <- tweetDT[ training_id, ]
+testing <- tweetDT[ -training_id, ]
+oh_train <-one_hot_emoji[ training_id, ]
+oh_test <- one_hot_emoji[ -training_id, ]
 
 nrow(training)
 nrow(testing)
 ```
+
+### design the model
+
+In the design of the model we have to answer a couple of questions.
+
+- how many layers?
+- how many hidden units?
+- what types of building blocks?
+- what type of architecture?
+
+#### model 1 FFA
+
+I started with the model from the tutorial, added an extra dense layer of size 16, tried bigger layers of size 32 and 50, tried more layers, up to 5.
+
+Then I removed most of the dropout because that made the accuracy increase, I didn't realize that this was just overfitting
+
+Then I added more dropout after each layer and had an accuracy of 38%.
+
+Then I realized there were duplicate rows because some tweets had multiples of the same emoji.
+
+This caused the problem that the same record was in the training and test set
+
+When removing the duplicates, the accuracy dropped to 23%.
+
+```{r base-FFA, eval = FALSE}
+input <- layer_input( shape = c( 1 ), dtype = "string" )
+
+output <- input %>% 
+  text_vectorization %>% 
+  layer_embedding( input_dim = num_words + 1, output_dim = 16 ) %>%
+  layer_global_average_pooling_1d %>%
+  layer_dense( units = 16, activation = "relu" ) %>%
+  layer_dropout( 0.5 ) %>% 
+  layer_dense( units = emoji_count, activation = "softmax" )
+
+model <- keras_model( input, output )
+```
+
+How many layers ?
+
+tested with 50 unit layers
+
+| # of dense layers | accuracy |
+| 1 | 24.6% |
+| 2 | 24.0% |
+| 3 | 23% |
+| 4 | 22% |
+
+how many units per layer? Tested with an embedding layer and 1 dense layer.
+
+|embedding units | dense units | accuracy |
+| 40 | 50 | 24.36% |
+| 40 | 45 | 24.5% |
+| 50 | 50 | 24.6% |
+| 55 | 50 | 24.45% |
+| 55 | 55 | 24.58% |
+| 60 | 55 | 24.60% |
+| 70 | 60 | 24.68% |
+| 80 | 70 | 24.56% |
+
+```{r best-FFA, eval=FALSE}
+input <- layer_input( shape = c( 1 ), dtype = "string" )
+
+output <- input %>% 
+  text_vectorization %>% 
+  layer_embedding( input_dim = num_words + 1, output_dim = 70 ) %>%
+  layer_global_average_pooling_1d %>%
+  layer_dense( units = 60, activation = "relu" ) %>%
+  layer_dropout( 0.4 ) %>% 
+  layer_dense( units = emoji_count, activation = "softmax" )
+
+model <- keras_model( input, output )
+```
+
+#### model 2 LSTM
+
+Because tweets consist of a sequence of words we can apply recurrent neural network methods.
+
+The most popular RNN architecture are LSTM's, they are ideal from large sequences.
+
+For this project they are a bit overkill since the sequences are quite short: 20 words / tweet.
+
+GRU's outperform LSTM's on time and accuracy for small sequences, so this will be the next step.
+
+how many units per layer?
+
+| embedding units | LSTM units | accuracy |
+| 50 | 50 | 24.99% |
+| 60 | 60 | 25.15% |
+| 70 | 70 | 24.97% |
+
+how many layers ? Tested with 60 units layers
+
+|number of layers| accuracy |
+| 1 | 25.15% |
+| 2 | 24.58% |
+
+```{r LSTM, eval=FALSE,warning=FALSE}
+input <- layer_input( shape = c( 1 ), dtype = "string" )
+
+output <- input %>% 
+  text_vectorization %>% 
+  layer_embedding( input_dim = num_words + 1, output_dim = 60 ) %>%
+  layer_lstm( units = 60, dropout = 0.5, recurrent_dropout = 0.5 )%>%
+  layer_dense( units = emoji_count, activation = "softmax" )
+
+model <- keras_model( input, output )
+```
+
+#### model 3 GRU
+
+GRU's are similar too but less complex than LSTM's which makes them twice as fast. 
+
+| amount of layers | embedding units | GRU units | accuracy |
+| 1 | 60 | 60 | 24.88% |
+| 1 | 70 | 60 | 25.01% |
+| 1 | 80 | 70 | 25% |
+| 1 | 90 | 70 | 24.97% |
+
+The amount of nodes doesn't seem to change all that much.
+
+Dropout and recurrent dropout inside of the GRU layer makes it incompatible with the CUDNN Nvidia neural network accelerator library, which makes the computation a lot slower.
+
+With recurrent dropout one epoch takes 9 minutes with an accuracy of 26.15% after 10 epochs.
+
+Without recurrent dropout one epoch takes 6.5 minutes with an accuracy of 26.78% after 11 epochs.
+
+```{r first-GRU, eval=FALSE}
+input <- layer_input( shape = c( 1 ), dtype = "string" )
+
+output <- input %>% 
+  text_vectorization %>% 
+  layer_embedding( input_dim = num_words + 1, output_dim = 64 ) %>%
+  layer_gru( units = 64, dropout = 0.5, recurrent_dropout = 0.5 )%>%
+  layer_dense( units = emoji_count, activation = "softmax" )
+
+model <- keras_model( input, output )
+```
+
+```{r best-one-layer-GRU, eval=FALSE}
+input <- layer_input( shape = c( 1 ), dtype = "string" )
+
+output <- input %>% 
+  text_vectorization %>% 
+  layer_embedding( input_dim = num_words + 1, output_dim = 64 ) %>%
+  layer_gru( units = 64 )%>%
+  layer_dropout( 0.5 ) %>% 
+  layer_dense( units = emoji_count, activation = "softmax" )
+
+model <- keras_model( input, output )
+```
+
+| number of words | embedding units | GRU units | minutes / epoch | #epochs to over fit | accuracy|
+| 20000 | 64 | 64 | 8.5 | 7 | 26.75% |
+| 20000 | 128 | 128 | 8.5 | 4 | 27.29% |
+| 10000 | 128 | 128 | 7.8 | 6 | 27.25% |
+| 10000 | 128 | 128, 64 | 13.7 | 7 | 27.37% |
+| 10000 | 128 | 192 | 8.6 | 5 | 27.46 % |
+| 10000 | 192 | 192 | 9.3 | 5 | 27.64 % |
+| 10000 | 256 | 192 | 10 | 4 | 27.53 % |
+| 10000 | 256 | 256 | 11 | 4 | 27.63 % |
+| 10000 | 192 | 256 | 10.5 | 4 | 27.54 % |
+| 10000 | 192 | 192, 128(dense)| 9.3 | 7 | 27.26 % |
+| 10000 | 192 | 192(dense), 192| 10.5 | +15 | 27.82% |
+
+```{r best-GRU-model, message=TRUE, warning=FALSE}
+input <- layer_input( shape = c( 1 ), dtype = "string" )
+
+output <- input %>% 
+  text_vectorization %>% 
+  layer_embedding( input_dim = num_words + 1, output_dim = 192 ) %>%
+  layer_dense( units = 192 ) %>%
+  layer_dropout( 0.4 ) %>%
+  layer_gru( units = 192 ) %>%
+  layer_dropout( 0.5 ) %>% 
+  layer_dense( units = emoji_count, activation = "softmax" )
+
+model <- keras_model( input, output )
+```
+ 
+#### model 4 bidirectional GRU
+
+Bidirectional GRU's connect two hidden layers of opposite directions to the same output.
+
+Which means that the output layer can get information from past (backwards) and future (forward) states simultaneously.
+
+This is just something I found in the literature and wanted to try.
+
+The results have no improvement and are much slower.
+
+- 14.3 minutes / epoch
+- over fits in 5 epochs
+- accuracy 27.27%
+
+```{r bidirctional-GRU, eval=FALSE}
+input <- layer_input( shape = c( 1 ), dtype = "string" )
+
+output <- input %>% 
+  text_vectorization %>% 
+  layer_embedding( input_dim = num_words + 1, output_dim = 128 ) %>%
+  bidirectional( layer_gru( units = 128 ) )%>%
+  layer_dropout( 0.5 ) %>% 
+  layer_dense( units = emoji_count, activation = "softmax" )
+
+model <- keras_model( input, output )
+```
+
+### compile the model 
+
+Before training, a model needs to be compiled with an optimizer and loss function.
+
+The tutorial uses binary crossentropy but our variables are categorical, therefore we use categorical crossentropy.
+
+```{r compile-the-model}
+model %>% compile(
+  optimizer = 'adam',
+  loss = 'categorical_crossentropy',
+  metrics = list( 'accuracy' )
+)
+```
+
+### Train the model
+
+Here we train the model. 
+
+The input is a tweet text from the training set.
+
+The output is a one hot representation of which emoji belongs to the input tweet.
+
+The amount of epochs is 20 because that is how long the model can train without the loss becoming higher than the validation loss.
+
+The batch size is 1660 because that is how many CUDA cores my GPU has. 
+
+When training on computers without dedicated NVIDIA GPU's, a batch size of 512 is recommended.
+
+```{r training}
+history <- model %>% fit(
+  training$text,
+  oh_train,
+  epochs = 20,
+  batch_size = 1660, 
+  #batch_size = 512, #cpu   
+  validation_split = 0.2,
+  verbose=2
+) 
+```
+
+```{r plot-training-history, eval=FALSE}
+plot( history )
+```
+
+### evaluate model
+
+Here we evaluate the model by calculating the accuracy on the test set.
+
+```{r evaluate-model}
+results <- model %>% evaluate( testing$text, oh_test, verbose = 0 )
+results
+```
+
+### save model
+
+Here you can save the trained model, for possible deployment.
+
+```{r save-model, eval = FALSE}
+model %>% save_model_tf("my_model")
+```
+
+### load model
+
+```{r load-model, include=FALSE}
+new_model <- load_model_tf("my_model")
+```
+
+## variations
 
 ### check effect of stemming
 
@@ -314,374 +581,63 @@ Let's see if this has an impact on model performance
 4. train model
 5. compare to score without stemming
 
-model settings:
+For this test we take the best performing GRU model.
 
-- num words = 10000
-- layer size = 192(input),192(dense),192(gru)
+Without stemming, the model takes 10.5 minutes per epoch to reach an accuracy of 27.82% after 15 epochs.
 
-NO stemming
-
-- 10.5 minutes / epoch for 15 epochs
-- accuracy 27.82%
-
-WITH stemming
-
-- 9.8 minutes / epoch for 15 epochs
-- accuracy 27.82%
+With stemming, the model takes 9.8 minutes per epoch to reach an accuracy  of 27.82% after 15 epochs.
 
 There is no improvement in accuracy but it computes a little faster.
 
-```{r apply stemmer}
+```{r apply-stemmer}
 library(tm)
 
 tweetDT$text <- stemDocument(tweetDT$text)
 ```
 
-```{r sample stemmed text}
+```{r sample-stemmed-text}
 tweetDT[sample(1:.N,10)]$text
 ```
 
-### design the model
+## results
 
-- how many layers?
-- how many hidden units?
-- what types of building blocks?
-- what type of architecture?
+### single prediction
 
-#### model 1 FFA
+This is a direct application of the model and can also be applied to any piece of text.
 
-- I started from the model from the tutorial
-- I added an extra dense layer of size 16
-- I tried bigger layers of size 32 and 50
-- I tried more layers, up to 5
-- I removed most of the dropout because that made the accuracy increase
-- I didn't realize that this was just overfitting
-- Then I added more dropout after each layer and had an accuracy of 38%
-- Then I realized I had duplicate rows because some tweets had multiples of the same emoji
-- This caused the problem that the same record was in the training and test set
-- When removing the duplicates, the accuracy dropped to 23%
-
-initial FFA from tutorial:
-
-```{r base FFA, eval = FALSE}
-input <- layer_input(shape = c(1), dtype = "string")
-
-output <- input %>% 
-  text_vectorization() %>% 
-  layer_embedding(input_dim = num_words + 1, output_dim = 16) %>%
-  layer_global_average_pooling_1d() %>%
-  layer_dense(units = 16, activation = "relu") %>%
-  layer_dropout(0.5) %>% 
-  layer_dense(units = emoji_count, activation = "softmax")
-
-model <- keras_model(input, output)
-```
-
-How many layers ? 1
-
-tested with 50 unit layers
-
-- 1 dense layer: 24.6% (19 epochs)
-- 2 dense layers: 24.0%
-- 3 dense layers: 23%
-- 4 dense layers: 22%
-
-how many units per layer?
-
-- 40,50 units: 24.36%
-- 40,45 units: 24.5%
-- 50,50 units: 24.6%
-- 55,50 units: 24.45%
-- 55,55 units: 24.58%
-- 60,55 units: 24.60%
-- 70,60 units: 24.68%
-- 80,70 units: 24.56%
-
-```{r best FFA, eval=FALSE}
-input <- layer_input(shape = c(1), dtype = "string")
-
-output <- input %>% 
-  text_vectorization() %>% 
-  layer_embedding(input_dim = num_words + 1, output_dim = 70) %>%
-  layer_global_average_pooling_1d() %>%
-  layer_dense(units = 60, activation = "relu") %>%
-  layer_dropout(0.4) %>% 
-  layer_dense(units = emoji_count, activation = "softmax")
-
-model <- keras_model(input, output)
-```
-
-
-#### model 2 LSTM
-
-LSTM's are a bit overkill since the sequences are a bit short: 32 words / tweet
-
-GRU's outperform LSTM's on time and accuracy for small sequences
-
-how many units per layer?
-
-dev: 120s/epoch 10 epochs
-
-- 50,50 units: 24.99% 
-- 60,60 units: 25.15%
-- 70,70 units: 24.97%
-
-how many layers ?
-
-tested with 60 units layers
-
-- 1 layer: 25.15%
-- 2 layers: 24.58%
-
-```{r LSTM, eval=FALSE,warning=FALSE}
-input <- layer_input(shape = c(1), dtype = "string")
-
-output <- input %>% 
-  text_vectorization() %>% 
-  layer_embedding(input_dim = num_words + 1, output_dim = 60) %>%
-  layer_lstm(units = 60,dropout=0.5, recurrent_dropout=0.5)%>%
-  layer_dense(units = emoji_count, activation = "softmax")
-
-model <- keras_model(input, output)
-```
-
-#### model 3 GRU
-
-similar too but less complex than LSTM which makes them twice as fast
-
-1 layer 60,60: 24.88%
-1 layer 70,60: 25.01%
-1 layer 80,70: 25%
-1 layer 90,70: 24.97%
-
-amount of nodes doesn't seem to change all that much
-
-dropout and recurrent dropout inside of the GRU layer makes it incompatible with the CUDNN library
-which makes the computation a lot slower 
-
-- 1 layer 
-- 64,64 
-- full set
-- dropout 0.5 
-- recurrent dropout 0.5
-- 9 minutes / epoch
-- accuracy: 26.15% (10 epochs)
-
-
-```{r first GRU, eval=FALSE}
-input <- layer_input(shape = c(1), dtype = "string")
-
-output <- input %>% 
-  text_vectorization() %>% 
-  layer_embedding(input_dim = num_words + 1, output_dim = 64) %>%
-  layer_gru(units = 64,dropout=0.5, recurrent_dropout=0.5)%>%
-  layer_dense(units = emoji_count, activation = "softmax")
-
-model <- keras_model(input, output)
-```
-
-compare to cudnn without recurrent dropout
-- 1 layer 
-- 64,64 
-- full set
-- dropout 0.5 
-- 6.5 minutes / epoch
-- accuracy: 26.78% (11 epochs)
-
-```{r best one layer GRU, eval=FALSE}
-input <- layer_input(shape = c(1), dtype = "string")
-
-output <- input %>% 
-  text_vectorization() %>% 
-  layer_embedding(input_dim = num_words + 1, output_dim = 64) %>%
-  layer_gru(units = 64)%>%
-  layer_dropout(0.5) %>% 
-  layer_dense(units = emoji_count, activation = "softmax")
-
-model <- keras_model(input, output)
-```
-
-- num words = 20000
-- layer size = 64,64
-- 8.5 minutes / epoch
-- overfits in 7 epochs
-- accuracy 26.75%
-
-- num words = 20000
-- layer size = 128,128
-- 8.5 minutes / epoch
-- overfits in 4 epochs
-- accuracy 27.29%
-
-- num words = 10000
-- layer size = 128,128
-- 7.8 minutes / epoch
-- overfits in 6 epochs
-- accuracy 27.25%
-
-- num words = 10000
-- layer size = 128,128,64
-- 13.7 minutes / epoch
-- overfits in 7 epochs
-- accuracy 27.37%
-
-- num words = 10000
-- layer size = 128,192
-- 8.6 minutes / epoch
-- overfits in 5 epochs
-- accuracy 27.46 %
-
-- num words = 10000
-- layer size = 192,192
-- 9.3 minutes / epoch
-- overfits  in 5 epochs
-- accuracy 27.64 %
-
-- num words = 10000
-- layer size = 256,192
-- 10 minutes / epoch
-- overfits in 4 epochs
-- accuracy 27.53 %
-
-- num words = 10000
-- layer size = 256,256
-- 11 minutes / epoch
-- overfits in 4 epochs
-- accuracy 27.63 %
-
-- num words = 10000
-- layer size = 192,256
-- 10.5  minutes / epoch
-- overfits in 4 epochs
-- accuracy 27.54 %
-
-- num words = 10000
-- layer size = 192,192,128(dense)
-- 9.3 minutes / epoch
-- overfits in 7 epochs
-- accuracy 27.26 %
-
-- num words = 10000
-- layer size = 192(input),192(dense),192
-- 10.5 minutes / epoch
-- overfits in +15  epochs
-- accuracy 27.82%
-
-
-```{r best model, message=TRUE, warning=FALSE}
-input <- layer_input(shape = c(1), dtype = "string")
-
-output <- input %>% 
-  text_vectorization() %>% 
-  layer_embedding(input_dim = num_words + 1, output_dim = 192) %>%
-  layer_dense(units=192)%>%
-  layer_dropout(0.4)%>%
-  layer_gru(units = 192)%>%
-  layer_dropout(0.5) %>% 
-  layer_dense(units = emoji_count, activation = "softmax")
-
-model <- keras_model(input, output)
-```
- 
-#### model 4 bidirectional GRU
-
-no improvement, much slower
-
-- num words = 10000
-- layer size = 128,128
-- 14.3 minutes / epoch
-- overfits in 5 epochs
-- accuracy 27.27%
-
-```{r bidirctional GRU, eval=FALSE}
-input <- layer_input(shape = c(1), dtype = "string")
-
-output <- input %>% 
-  text_vectorization() %>% 
-  layer_embedding(input_dim = num_words + 1, output_dim = 128) %>%
-  bidirectional(layer_gru(units = 128))%>%
-  layer_dropout(0.5) %>% 
-  layer_dense(units = emoji_count, activation = "softmax")
-
-model <- keras_model(input, output)
-```
-
- 
-### compile the model 
-
-the tutorial uses binary_crossentropy but our variables are categorical
-
-```{r compile the model}
-model %>% compile(
-  optimizer = 'adam',
-  loss = 'categorical_crossentropy',
-  metrics = list('accuracy')
-)
-```
-
-### Train the model
-
-```{r training}
-history <- model %>% fit(
-  training$text,
-  oh_train,
-  epochs = 20,
-  batch_size = 1660, 
- #batch_size = 512, #cpu   
-  validation_split = 0.2,
-  verbose=2
-) 
-```
-
-```{r plot training history, eval=FALSE}
-plot(history)
-```
-
-### evaluate model
-
-```{r evaluate model}
-results <- model %>% evaluate(testing$text, oh_test, verbose = 0)
-results
-```
-
-### save model
-
-```{r save model, eval = FALSE}
-model %>% save_model_tf("my_model")
-```
-
-### load model
-
-```{r load model, include=FALSE}
-new_model <- load_model_tf("saved_model")
-```
-
-## single prediction
-
-```{r single prediction}
+```{r single-prediction}
 id <- 9
-amount <-10
+prediction1 <- predict(model,testing$text[id])[1,]
 
-prediction <- predict(model,testing$text[id])[1,]
+any_text <- 'Hello'
+prediction2 <- predict(model,any_text)
 
-top_val <- prediction[order(prediction)]%>%rev() %>%head(amount) %>% round(3)
-top_ids <- order(prediction) %>% rev() %>% head(amount)
+print_predictions <- function(prediction){
+  amount <-10
+  top_val <- prediction[order(prediction)]%>%rev() %>%head(amount) %>% round(3)
+  top_ids <- order(prediction) %>% rev() %>% head(amount)
 
-top_emoji <- emoji_dict[top_ids]
-top_prediction <- cbind(top_emoji,top_val)
+  top_emoji <- emoji_dict[top_ids]
+  top_prediction <- cbind(top_emoji,top_val)
 
-print(paste("text:",testing$text[id]))
-print(paste("true:",testing$emoji[id]))
-print(top_prediction)
+  print(paste("text:",testing$text[id]))
+  print(paste("true:",testing$emoji[id]))
+  print(top_prediction)
+}
+
+print_predictions(prediction1)
+print_predictions(prediction2)
 ```
 
-## accuracy distribution
+### accuracy distribution
 
-of all predictions, which percentage is correct
+A prediction returns a distribution with a probability for each emoji to be correct.
 
-add column of prediction to DT
+The accuracy is calculated on if the highest probable predicted emoji is the true emoji.
 
-```{r add column with emoji as int}
+I am interested in the percentage of times the correct emoji is in the top 2 or top 3 predicted emoji.
+
+```{r emoji-as-int}
 emoji_to_int<- function(emoji){
   return(which(emoji_dict==emoji))
 }
@@ -707,7 +663,6 @@ check_set = cbind(test_emojint$emojint,top_emoji)
 ```
 
 ```{r}
-
 foo<- function(x){
   if(length(unique(x))==1){return(TRUE)}
   return(FALSE)
@@ -742,7 +697,7 @@ perc
 ```
 
 
-## individual word emoji prediction
+### individual word emoji prediction
 
 Make prediction for every word individually in text vectorization vocabulary.
 
@@ -775,8 +730,6 @@ sapply(id,predict_pos,pos=5)
 
 print("top predicted emoji by single word")
 emoji_dict[sapply(c(1:5),predict_pos,id=1)]
-
-
 ```
 
 ## n-grams
@@ -832,24 +785,12 @@ ngrams<-lapply(ngrams,match,table=uniquengrams)
 oh<- do.call(rbind, lapply(ngrams, function(i) as.integer(!is.na(match(unique(unlist(ngrams)), i)))))
 ```
 
-```{r ngrams as one hot}
+```{r ngrams as one hot2}
 ngrams <- tokens(tweetDT$text,"character")%>% tokens_ngrams(n=3,concatenator='')
 
 uniquengrams <- ngrams %>% unlist() %>% unique()
 
 ngrams<-lapply(ngrams,match,table=uniquengrams)
-```
-
-```{r}
-library(parallel)
-
-cl <- makeCluster(detectCores())
-
-clusterExport(cl, "ngrams")
-
-oh<- do.call(rbind, parLapply(cl,ngrams, function(i) as.integer(!is.na(match(unique(unlist(ngrams)), i)))))
-
-stopCluster(cl)
 ```
 
 ## machine learning

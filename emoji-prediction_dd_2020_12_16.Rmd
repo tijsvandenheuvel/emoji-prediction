@@ -120,7 +120,7 @@ tweetDT$text <- gsub('[^a-z]+', ' ', tweetDT$text)
 tweetDT <- tweetDT[tweetDT$text != '', ]
 ```
 
-> Gebruik dt waarvoor ze dienen: `tweeDT[, text := text %>% tolower]`
+> Gebruik dt waarvoor ze dienen: `tweetDT[, text := text %>% tolower]`
 
 > Maak uw code een beetje leesbaarder met `Ctrl = Shift + A`
 
