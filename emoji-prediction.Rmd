@@ -173,7 +173,7 @@ emoji_freq[bottom,]
 ```
 Here we see that some emoji's have a lot more tweets, but most emoji's have a proportionate amount
 
-```{r}
+```{r tweets-per-emoji-distribution}
 tweetDT$emoji %>% table %>% sort %>% rev %>% barplot
 ```
 
@@ -237,12 +237,6 @@ text_vectorization %>% adapt(tweetDT$text)
 |20|6.3|27.85|
 
 #### text vectorization insight
-
-Here you can see a sample of the vocabulary used by the text vectorization layer.
-
-```{r the-used-vocabulary, eval=FALSE}
-get_vocabulary( text_vectorization ) %>% sample(100)
-```
 
 Here is shown how the text vectorization layer transforms the input
 
@@ -795,26 +789,26 @@ ngrams<-lapply(ngrams,match,table=uniquengrams)
 
 ## machine learning
 
-```{r setup tensorflow message=FALSE}
+```{r setup-tensorflow, message=FALSE}
 library(keras)
 library(dplyr)
 library(ggplot2)
 library(purrr)
 ```
 
-```{r how many different emojis}
+```{r how-many-different-emojis}
 emoji_count <- unique(tweetDT$emoji)%>%length()
 emoji_count
 ```
 
-```{r vectorize emoji as one hot}
+```{r vectorize-emoji-as-one-hot2}
 one_hot_emoji <- match(tweetDT$emoji,unique(tweetDT$emoji))%>%to_categorical()
 one_hot_emoji <- one_hot_emoji[,2:(emoji_count+1)]
 
 emoji_dict <- tweetDT$emoji%>%unique()
 ```
 
-```{r adapt text vectorization layer ,include=FALSE,cache=TRUE}
+```{r adapt-text-vectorization-layer2 ,include=FALSE,cache=TRUE}
 num_words <- 10000
 max_length <- 100
 text_vectorization <- layer_text_vectorization(
@@ -824,11 +818,11 @@ text_vectorization <- layer_text_vectorization(
 text_vectorization %>% adapt(tweetDT$V2)
 ```
 
-```{r the used vocabulary, eval=FALSE}
+```{r the-used-vocabulary2, eval=FALSE}
 get_vocabulary(text_vectorization)%>%sample(100)
 ```
 
-```{r split data in test and training set}
+```{r split-data-in-test-and-training-set2}
 training_id <- sample.int(nrow(tweetDT), size = nrow(tweetDT)*0.8)
 training <- tweetDT[training_id,]
 testing <- tweetDT[-training_id,]
@@ -855,7 +849,7 @@ GPU memory cant handle bigger model nor the full dataset
 
 - 100i,192d,192g (360s x 6) 24.64%
 
-```{r best model, message=TRUE, warning=FALSE}
+```{r best-model2, message=TRUE, warning=FALSE}
 input <- layer_input(shape = c(1), dtype = "string")
 
 output <- input %>% 
@@ -870,7 +864,7 @@ output <- input %>%
 model <- keras_model(input, output)
 ```
 
-```{r compile the model}
+```{r compile2}
 model %>% compile(
   optimizer = 'adam',
   loss = 'categorical_crossentropy',
@@ -878,7 +872,7 @@ model %>% compile(
 )
 ```
 
-```{r training}
+```{r training2}
 history <- model %>% fit(
   training$V2,
   oh_train,
@@ -890,7 +884,7 @@ history <- model %>% fit(
 ) 
 ```
 
-```{r evaluate model}
+```{r evaluate-model2}
 results <- model %>% evaluate(testing$V2, oh_test, verbose = 0)
 results
 ```
