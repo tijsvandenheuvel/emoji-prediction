@@ -60,7 +60,7 @@ This is the full data set of 6.1 million tweets, it was used for training of the
 
 The data was already split into a training and a test set but this is unpractical for cleaning and one hot encoding of output,
 
-so it is added together and split later.
+so it is added together and splitted later.
 
 ```{r load-full-dataset, eval=TRUE}
 tweetDT <- rbind( fread("./data/train.tsv"), fread("./data/test.tsv") )
@@ -583,14 +583,14 @@ With stemming, the model takes 9.8 minutes per epoch to reach an accuracy  of 27
 
 There is no improvement in accuracy but it computes a little faster.
 
-```{r apply-stemmer}
+```{r apply-stemmer, include=FALSE}
 library(tm)
 
-tweetDT$text <- stemDocument(tweetDT$text)
+stemmedtext <- stemDocument(tweetDT$text)
 ```
 
 ```{r sample-stemmed-text}
-tweetDT[sample(1:.N,10)]$text
+stemmedtext[sample(10)]
 ```
 
 ## results
@@ -631,6 +631,8 @@ The accuracy is calculated on if the highest probable predicted emoji is the tru
 
 I am interested in the percentage of times the correct emoji is in the top 2 or top 3 predicted emoji.
 
+> TO-BE continued
+
 ```{r emoji-as-int}
 emoji_to_int<- function(emoji){
   return(which(emoji_dict==emoji))
@@ -646,17 +648,9 @@ test_emojint<-cbind(testing,emojint)
 
 ```{r}
 col<- predict(new_model,test_emojint$text)
-```
-
-```{r}
 top_emoji <- apply(col,1,which.max)
-```
-
-```{r}
 check_set = cbind(test_emojint$emojint,top_emoji)
-```
 
-```{r}
 foo<- function(x){
   if(length(unique(x))==1){return(TRUE)}
   return(FALSE)
@@ -665,31 +659,10 @@ foo<- function(x){
 table(apply(check_set,1,foo))
 ```
 
-
-```{r manual evaluation setup}
-
-time1<-Sys.time()
-
-make_pred <- function(dt){
-  dt<- as.list(dt)
-  id<-predict(new_model,dt$text)[1,]%>%which.max()
-  if(dt$emojint==id){return(1)}
-  return(0)
-}
-
-pred_set <- test_emojint[sample(1:.N,2000)]
-
-pred1 <- apply(pred_set,1,make_pred)
-
-time <- Sys.time()-time1
-time
-```
-
 ```{r manual evaluation}
 perc<-Reduce("+",pred1)/length(pred1)
 perc
 ```
-
 
 ### individual word emoji prediction
 
@@ -700,6 +673,8 @@ Any prediction on one word gives the same emojis.
 Here it is illustrated with five random words from voc, this is also true for words not in voc. 
 
 The model has learned correlation between length and emoji.
+
+> TO-BE continued
 
 ```{r predict emoji from a single word,eval=false}
 model_voc <- get_vocabulary(text_vectorization)
@@ -733,41 +708,61 @@ In this case we use character 3-grams which means that we split the text of an e
 
 ### tweet text as list of ngrams instead of list of words
 
-```{r ngrams as a string}
+Here we keep a sentence structure but with 3-grams instead of words, to be used with the text_vectorization layer. 
+
+```{r ngrams-as-a-string}
 library(quanteda)
 
-clean<-function(tweet){
-  return(paste(tweet,collapse=' '))
+clean <- function( tweet ){
+  return( paste( tweet, collapse=' ') )
 }
 
-gram<- tokens(tweetDT$text,"character") %>% tokens_ngrams(n=4,concatenator='')%>%lapply(clean)
+gram <- tokens( tweetDT$text, "character") %>% tokens_ngrams( n=3, concatenator='') %>% lapply(clean)
 
-tweetDT<- cbind(tweetDT,as.character(gram))
+tweetDT <- cbind( tweetDT, as.character(gram) )
 
 rm(gram)
 ```
 
-Analog to the words we examine how many 3-grams there are per tweet.
+Analog to the words we examine how many 3-grams there are per tweet, to determine the max length of the text vectorization layer. 
 
-```{r tweet length summary}
-tweetDT$V2 %>% strsplit(" ") %>% sapply(length) %>% summary()
+```{r ngrams-per-tweet}
+tweetDT$V2 %>% strsplit(" ") %>% sapply(length) %>% summary
 ```
 
-```{r tweet length plot}
+```{r ngrams-per-tweet-plot}
 tweetDT$V2 %>% strsplit(" ") %>% sapply(length) %>% hist(breaks=162,main="Distribution of ngrams per tweet") 
 ```
+
+Here we check the amount of ngrams in the data set.
 
 There are 16625 different 3grams in the dev set.
 
 There are 229941 different 4grams in the dev set.
 
-```{r how many different ngrams}
-tweetDT$V2 %>% strsplit(" ") %>% as.list() %>% unlist() %>% unique() %>%length()
+```{r amount-of-ngrams}
+tweetDT$V2 %>% strsplit(" ") %>% unlist %>% unique %>%length 
 ```
 
-### create 3-grams as one hot matrix
+This would be the appropriate text vectorization layer to be used with 3-grams.
 
-```{r ngrams as one hot}
+```{r text-vectorization-layer-3-grams ,include=FALSE,cache=TRUE}
+num_words <- 10000
+max_length <- 100
+text_vectorization <- layer_text_vectorization(
+  max_tokens = num_words, 
+  output_sequence_length = max_length
+  )
+text_vectorization %>% adapt(tweetDT$V2)
+```
+
+### 3-grams as one hot matrix
+
+Another option would be to encode the 3-grams as one hot (or dummy variables).
+
+Here we demonstrate a proof of concept but the entire data set would generate a sparse 0-1 matrix of `nrow(tweetDT)` x ~17000 dimensions, which my computer couldn't handle at all.
+
+```{r ngrams-as-one-hot}
 sampleDT = tweetDT[1:1000]
 
 ngrams <- tokens(sampleDT$text,"character")%>% tokens_ngrams(n=3,concatenator='')
@@ -808,15 +803,7 @@ one_hot_emoji <- one_hot_emoji[,2:(emoji_count+1)]
 emoji_dict <- tweetDT$emoji%>%unique()
 ```
 
-```{r adapt-text-vectorization-layer2 ,include=FALSE,cache=TRUE}
-num_words <- 10000
-max_length <- 100
-text_vectorization <- layer_text_vectorization(
-  max_tokens = num_words, 
-  output_sequence_length = max_length
-  )
-text_vectorization %>% adapt(tweetDT$V2)
-```
+
 
 ```{r the-used-vocabulary2, eval=FALSE}
 get_vocabulary(text_vectorization)%>%sample(100)
