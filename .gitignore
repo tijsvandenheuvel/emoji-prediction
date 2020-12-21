@@ -4,9 +4,10 @@
 .RDataTmp
 .Rhistory
 .RData
-*.zip
 *.csv
 *.txt
 *.tsv
 
 archief/
+
+data/

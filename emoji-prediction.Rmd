@@ -51,7 +51,7 @@ This set was used for most of the development of this notebook.
 This set contains 1.3 million tweets
 
 ```{r load-dev-dataset, eval=FALSE}
-tweetDT <- fread("./data/dev.csv")
+tweetDT <- fread("./data/dev.tsv")
 ```
 
 ### Full set
@@ -63,7 +63,7 @@ The data was already split into a training and a test set but this is unpractica
 so it is added together and split later.
 
 ```{r load-full-dataset, eval=TRUE}
-tweetDT <- rbind( fread("./data/train.csv"), fread("./data/test.csv") )
+tweetDT <- rbind( fread("./data/train.tsv"), fread("./data/test.tsv") )
 ```
 
 ## prepare the data
