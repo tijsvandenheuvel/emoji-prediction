@@ -50,7 +50,7 @@ This set was used for most of the development of this notebook.
 
 This set contains 1.3 million tweets
 
-```{r load-dev-dataset, eval=FALSE}
+```{r load-dev-dataset, eval=TRUE}
 tweetDT <- fread("./data/dev.tsv")
 ```
 
@@ -62,7 +62,7 @@ The data was already split into a training and a test set but this is unpractica
 
 so it is added together and splitted later.
 
-```{r load-full-dataset, eval=TRUE}
+```{r load-full-dataset, eval=FALSE}
 tweetDT <- rbind( fread("./data/train.tsv"), fread("./data/test.tsv") )
 ```
 
@@ -485,7 +485,7 @@ input <- layer_input( shape = c( 1 ), dtype = "string" )
 output <- input %>% 
   text_vectorization %>% 
   layer_embedding( input_dim = num_words + 1, output_dim = 128 ) %>%
-  bidirectional( layer_gru( units = 128 ) )%>%
+  bidirectional( layer_gru( units = 128 )) %>%
   layer_dropout( 0.5 ) %>% 
   layer_dense( units = emoji_count, activation = "softmax" )
 
@@ -524,15 +524,14 @@ When training on computers without dedicated NVIDIA GPU's, a batch size of 512 i
 history <- model %>% fit(
   training$text,
   oh_train,
-  epochs = 20,
+  epochs = 10,
   batch_size = 1660, 
-  #batch_size = 512, #cpu   
   validation_split = 0.2,
   verbose=2
 ) 
 ```
 
-```{r plot-training-history, eval=FALSE}
+```{r plot-training-history}
 plot( history )
 ```
 
@@ -550,13 +549,121 @@ results
 Here you can save the trained model, for possible deployment.
 
 ```{r save-model, eval = FALSE}
-model %>% save_model_tf("my_model")
+model %>% save_model_tf( "my_model" )
 ```
 
 ### load model
 
-```{r load-model, include=FALSE}
-new_model <- load_model_tf("my_model")
+```{r load-model, include=FALSE,eval=FALSE}
+new_model <- load_model_tf( "my_model" )
+```
+
+## results
+
+### single prediction
+
+This is a direct application of the model and can also be applied to any piece of text.
+
+```{r single-prediction }
+id <- 9
+prediction1 <- predict( model, testing$text[ id ] )[1,]
+
+any_text <- 'Hello'
+prediction2 <- predict( model, any_text )
+
+print_predictions <- function( prediction ){
+  amount <-10
+  top_val <- prediction[ order( prediction ) ] %>% rev %>% head( amount ) %>% round(3)
+  top_ids <- order( prediction ) %>% rev %>% head( amount )
+
+  top_emoji <- emoji_dict[ top_ids ]
+  top_prediction <- cbind( top_emoji, top_val )
+
+  print( paste( "text:", testing$text[ id ] ))
+  print( paste( "true:", testing$emoji[ id ] ))
+  print( top_prediction )
+}
+
+print_predictions( prediction1 )
+print_predictions( prediction2 )
+```
+
+### accuracy distribution
+
+A prediction returns a distribution with a probability for each emoji to be correct.
+
+The accuracy is calculated on if the highest probable predicted emoji is the true emoji.
+
+I am interested in the percentage of times the correct emoji is in the top 2 or top 3 predicted emoji.
+
+> TO-BE continued (maybe)
+
+```{r emoji-as-int, eval=FALSE}
+emoji_to_int<- function(emoji){
+  return(which(emoji_dict==emoji))
+}
+emojint<- sapply(testing$emoji,emoji_to_int)
+test_emojint<-cbind(testing,emojint)
+```
+
+10: 0.6s
+100: 5s
+1000: 44s
+2000: 110s
+
+```{r manual-prediction, eval=FALSE}
+col<- predict(new_model,test_emojint$text)
+top_emoji <- apply(col,1,which.max)
+check_set = cbind(test_emojint$emojint,top_emoji)
+
+foo<- function(x){
+  if(length(unique(x))==1){return(TRUE)}
+  return(FALSE)
+}
+
+table(apply(check_set,1,foo))
+```
+
+```{r manual-evaluation, eval=FALSE}
+perc<-Reduce("+",pred1)/length(pred1)
+perc
+```
+
+### individual word emoji prediction
+
+Make prediction for every word individually in text vectorization vocabulary.
+
+Any prediction on one word gives the same emojis.
+
+Here it is illustrated with five random words from voc, this is also true for words not in voc. 
+
+The model has learned correlation between length and emoji.
+
+> TO-BE continued (maybe)
+
+```{r predict-emoji-from-single-word, eval=FALSE}
+model_voc <- get_vocabulary(text_vectorization)
+
+id<- c(1,50,100,3456,9999)
+
+predict_pos <- function(id,pos) {
+   pred<-predict(new_model,model_voc[id])[1,]%>% order()%>%rev()%>%head(pos)
+   return(pred[pos])
+}
+
+print("first")
+sapply(id,predict_pos,pos=1)
+print("second")
+sapply(id,predict_pos,pos=2)
+print("third")
+sapply(id,predict_pos,pos=3)
+print("fourth")
+sapply(id,predict_pos,pos=4)
+print("fifth")
+sapply(id,predict_pos,pos=5)
+
+print("top predicted emoji by single word")
+emoji_dict[sapply(c(1:5),predict_pos,id=1)]
 ```
 
 ## variations
@@ -585,120 +692,11 @@ There is no improvement in accuracy but it computes a little faster.
 
 ```{r apply-stemmer, include=FALSE}
 library(tm)
-
-stemmedtext <- stemDocument(tweetDT$text)
+stemmedtext <- stemDocument( tweetDT$text )
 ```
 
-```{r sample-stemmed-text}
-stemmedtext[sample(10)]
-```
-
-## results
-
-### single prediction
-
-This is a direct application of the model and can also be applied to any piece of text.
-
-```{r single-prediction}
-id <- 9
-prediction1 <- predict(model,testing$text[id])[1,]
-
-any_text <- 'Hello'
-prediction2 <- predict(model,any_text)
-
-print_predictions <- function(prediction){
-  amount <-10
-  top_val <- prediction[order(prediction)]%>%rev() %>%head(amount) %>% round(3)
-  top_ids <- order(prediction) %>% rev() %>% head(amount)
-
-  top_emoji <- emoji_dict[top_ids]
-  top_prediction <- cbind(top_emoji,top_val)
-
-  print(paste("text:",testing$text[id]))
-  print(paste("true:",testing$emoji[id]))
-  print(top_prediction)
-}
-
-print_predictions(prediction1)
-print_predictions(prediction2)
-```
-
-### accuracy distribution
-
-A prediction returns a distribution with a probability for each emoji to be correct.
-
-The accuracy is calculated on if the highest probable predicted emoji is the true emoji.
-
-I am interested in the percentage of times the correct emoji is in the top 2 or top 3 predicted emoji.
-
-> TO-BE continued
-
-```{r emoji-as-int}
-emoji_to_int<- function(emoji){
-  return(which(emoji_dict==emoji))
-}
-emojint<- sapply(testing$emoji,emoji_to_int)
-test_emojint<-cbind(testing,emojint)
-```
-
-10: 0.6s
-100: 5s
-1000: 44s
-2000: 110s
-
-```{r}
-col<- predict(new_model,test_emojint$text)
-top_emoji <- apply(col,1,which.max)
-check_set = cbind(test_emojint$emojint,top_emoji)
-
-foo<- function(x){
-  if(length(unique(x))==1){return(TRUE)}
-  return(FALSE)
-}
-
-table(apply(check_set,1,foo))
-```
-
-```{r manual evaluation}
-perc<-Reduce("+",pred1)/length(pred1)
-perc
-```
-
-### individual word emoji prediction
-
-Make prediction for every word individually in text vectorization vocabulary.
-
-Any prediction on one word gives the same emojis.
-
-Here it is illustrated with five random words from voc, this is also true for words not in voc. 
-
-The model has learned correlation between length and emoji.
-
-> TO-BE continued
-
-```{r predict emoji from a single word,eval=false}
-model_voc <- get_vocabulary(text_vectorization)
-
-id<- c(1,50,100,3456,9999)
-
-predict_pos <- function(id,pos) {
-   pred<-predict(new_model,model_voc[id])[1,]%>% order()%>%rev()%>%head(pos)
-   return(pred[pos])
-}
-
-print("first")
-sapply(id,predict_pos,pos=1)
-print("second")
-sapply(id,predict_pos,pos=2)
-print("third")
-sapply(id,predict_pos,pos=3)
-print("fourth")
-sapply(id,predict_pos,pos=4)
-print("fifth")
-sapply(id,predict_pos,pos=5)
-
-print("top predicted emoji by single word")
-emoji_dict[sapply(c(1:5),predict_pos,id=1)]
+```{r sample-stemmed-text, include=FALSE}
+stemmedtext[ sample(10) ]
 ```
 
 ## n-grams
@@ -706,22 +704,26 @@ emoji_dict[sapply(c(1:5),predict_pos,id=1)]
 A different route is to look at n-grams, an n-gram is a contiguous sequence of n items from a given sample of text.
 In this case we use character 3-grams which means that we split the text of an emoji in sequences of three characters.
 
+We use the quanteda library for the construction of the n-grams
+
+```{r quanteda, include = FALSE}
+library(quanteda)
+```
+
 ### tweet text as list of ngrams instead of list of words
 
 Here we keep a sentence structure but with 3-grams instead of words, to be used with the text_vectorization layer. 
 
 ```{r ngrams-as-a-string}
-library(quanteda)
-
 clean <- function( tweet ){
   return( paste( tweet, collapse=' ') )
 }
 
-gram <- tokens( tweetDT$text, "character") %>% tokens_ngrams( n=3, concatenator='') %>% lapply(clean)
+gram <- tokens( tweetDT$text, "character") %>% tokens_ngrams( n=3, concatenator='') %>% lapply( clean )
 
-tweetDT <- cbind( tweetDT, as.character(gram) )
+tweetDT <- cbind( tweetDT, as.character( gram ))
 
-rm(gram)
+rm( gram )
 ```
 
 Analog to the words we examine how many 3-grams there are per tweet, to determine the max length of the text vectorization layer. 
@@ -731,7 +733,7 @@ tweetDT$V2 %>% strsplit(" ") %>% sapply(length) %>% summary
 ```
 
 ```{r ngrams-per-tweet-plot}
-tweetDT$V2 %>% strsplit(" ") %>% sapply(length) %>% hist(breaks=162,main="Distribution of ngrams per tweet") 
+tweetDT$V2 %>% strsplit(" ") %>% sapply(length) %>% hist(breaks=162,main="Distribution of ngrams per tweet")
 ```
 
 Here we check the amount of ngrams in the data set.
@@ -741,20 +743,30 @@ There are 16625 different 3grams in the dev set.
 There are 229941 different 4grams in the dev set.
 
 ```{r amount-of-ngrams}
-tweetDT$V2 %>% strsplit(" ") %>% unlist %>% unique %>%length 
+tweetDT$V2 %>% strsplit(" ") %>% unlist %>% unique %>% length 
 ```
 
 This would be the appropriate text vectorization layer to be used with 3-grams.
 
-```{r text-vectorization-layer-3-grams ,include=FALSE,cache=TRUE}
+```{r text-vectorization-layer-3-grams ,include=FALSE,eval=FALSE}
 num_words <- 10000
 max_length <- 100
 text_vectorization <- layer_text_vectorization(
   max_tokens = num_words, 
   output_sequence_length = max_length
   )
-text_vectorization %>% adapt(tweetDT$V2)
+text_vectorization %>% adapt( tweetDT$V2 )
 ```
+
+#### model results
+
+GPU memory cant handle bigger model nor the full data set so the dev set is used here.
+
+| n-gram | input size | dense layer size | gru layer size | seconds / epoch | # epochs | accuracy|
+| 3 | 100 | 192 | 192 | / | 5 | 24.35% |
+| 3 | 100 | 222 | 222 | 380 | 6 | 24.59% |
+| 3 | 100 | 128 | 128,128 | 560 | 10 | 24.57% |
+| 4 | 100 | 192 | 192 | 360 | 6 | 24.64 |
 
 ### 3-grams as one hot matrix
 
@@ -762,8 +774,12 @@ Another option would be to encode the 3-grams as one hot (or dummy variables).
 
 Here we demonstrate a proof of concept but the entire data set would generate a sparse 0-1 matrix of `nrow(tweetDT)` x ~17000 dimensions, which my computer couldn't handle at all.
 
-```{r ngrams-as-one-hot}
-sampleDT = tweetDT[1:1000]
+Even a one hot matrix of 10,000 tweets is 379 MB with a sparse representation of 5.8 MB
+
+A one hot matrix of 100,000 tweets is already 5.5 GB dense and computer could not create a sparse representation due to RAM limitations.
+
+```{r ngrams-as-one-hot,eval=FALSE}
+sampleDT = tweetDT[1:10000]
 
 ngrams <- tokens(sampleDT$text,"character")%>% tokens_ngrams(n=3,concatenator='')
 
@@ -774,110 +790,60 @@ ngrams<-lapply(ngrams,match,table=uniquengrams)
 oh<- do.call(rbind, lapply(ngrams, function(i) as.integer(!is.na(match(unique(unlist(ngrams)), i)))))
 ```
 
-```{r ngrams as one hot2}
-ngrams <- tokens(tweetDT$text,"character")%>% tokens_ngrams(n=3,concatenator='')
+```{r sparse-representation,eval=FALSE}
+library(Matrix)
 
-uniquengrams <- ngrams %>% unlist() %>% unique()
-
-ngrams<-lapply(ngrams,match,table=uniquengrams)
+oh_sparse <-Matrix( data=oh, sparse=TRUE )
 ```
 
-## machine learning
+#### machine learning model for 3-gram oh matrix
 
-```{r setup-tensorflow, message=FALSE}
-library(keras)
-library(dplyr)
-library(ggplot2)
-library(purrr)
+```{r ngram-data-prepare,eval=FALSE}
+emoji_int <- match(sampleDT$emoji, unique(sampleDT$emoji))
+
+one_hot_emoji <- to_categorical(emoji_int)
+one_hot_emoji <- one_hot_emoji[, 2:(emoji_count+1)]
+
+training_id <- sample.int( nrow(sampleDT), size = nrow(sampleDT)*0.8 )
+
+ngram_train <- oh[ training_id, ]
+ngram_test <- oh[ -training_id, ]
+
+emoji_train <-one_hot_emoji[ training_id, ]
+emoji_test <- one_hot_emoji[ -training_id, ]
 ```
 
-```{r how-many-different-emojis}
-emoji_count <- unique(tweetDT$emoji)%>%length()
-emoji_count
-```
-
-```{r vectorize-emoji-as-one-hot2}
-one_hot_emoji <- match(tweetDT$emoji,unique(tweetDT$emoji))%>%to_categorical()
-one_hot_emoji <- one_hot_emoji[,2:(emoji_count+1)]
-
-emoji_dict <- tweetDT$emoji%>%unique()
-```
-
-
-
-```{r the-used-vocabulary2, eval=FALSE}
-get_vocabulary(text_vectorization)%>%sample(100)
-```
-
-```{r split-data-in-test-and-training-set2}
-training_id <- sample.int(nrow(tweetDT), size = nrow(tweetDT)*0.8)
-training <- tweetDT[training_id,]
-testing <- tweetDT[-training_id,]
-oh_train <-one_hot_emoji[training_id,]
-oh_test <- one_hot_emoji[-training_id,]
-
-nrow(training)
-nrow(testing)
-```
-
-GPU memory cant handle bigger model nor the full dataset
-
-- i: input
-- d: dense
-- g: gru
-
-3-gram: 
-
-- 100i,192d,192g (5 epochs) 24.35%
-- 100i,222d,222g (380s x 6 epochs) 24.59%
-- 100i,128d,128g,128g (560s x 10 epochs)  24.57%
-
-4-gram:
-
-- 100i,192d,192g (360s x 6) 24.64%
-
-```{r best-model2, message=TRUE, warning=FALSE}
-input <- layer_input(shape = c(1), dtype = "string")
+```{r ngram-model,eval=FALSE,include=FALSE}
+input <- layer_input( shape = c( ncol(oh) ), dtype = "int32" )
 
 output <- input %>% 
-  text_vectorization() %>% 
-  layer_embedding(input_dim = num_words + 1, output_dim = 192) %>%
-  layer_dense(units=192)%>%
-  layer_dropout(0.4)%>%
-  layer_gru(units = 192)%>%
-  layer_dropout(0.5) %>% 
-  layer_dense(units = emoji_count, activation = "softmax")
+  layer_dense( 1024 ) %>%
+  layer_dropout( 0.5 ) %>%
+  layer_dense( 512 ) %>%
+  layer_dropout( 0.5 ) %>%
+  layer_dense( units = emoji_count, activation = "softmax" )
 
-model <- keras_model(input, output)
+model <- keras_model( input, output )
 ```
 
-```{r compile2}
+```{r compile-ngram-model,eval=FALSE,include=FALSE}
 model %>% compile(
   optimizer = 'adam',
   loss = 'categorical_crossentropy',
-  metrics = list('accuracy')
+  metrics = list( 'accuracy' )
 )
 ```
 
-```{r training2}
+```{r training-ngram, eval=FALSE}
 history <- model %>% fit(
-  training$V2,
-  oh_train,
-  epochs = 10,
-  batch_size = 1660, 
- #batch_size = 512, #cpu   
-  validation_split = 0.2,
+  ngram_train,
+  emoji_train,
+  epochs = 5,
+  batch_size = 830, 
+  validation_split = 0.1,
   verbose=2
 ) 
 ```
-
-```{r evaluate-model2}
-results <- model %>% evaluate(testing$V2, oh_test, verbose = 0)
-results
-```
-
-
-
 
 
 
