@@ -232,6 +232,7 @@ text_vectorization %>% adapt(tweetDT$text)
 - 20 epochs
 
 |max_length | minutes/epoch | accuracy|
+|---|---|---|
 |32|9.8|27.89|
 |25|7.6|27.91|
 |20|6.3|27.85|
@@ -328,6 +329,7 @@ How many layers ?
 tested with 50 unit layers
 
 | # of dense layers | accuracy |
+|---|---|
 | 1 | 24.6% |
 | 2 | 24.0% |
 | 3 | 23% |
@@ -336,6 +338,7 @@ tested with 50 unit layers
 how many units per layer? Tested with an embedding layer and 1 dense layer.
 
 |embedding units | dense units | accuracy |
+|---|---|---|
 | 40 | 50 | 24.36% |
 | 40 | 45 | 24.5% |
 | 50 | 50 | 24.6% |
@@ -372,6 +375,7 @@ GRU's outperform LSTM's on time and accuracy for small sequences, so this will b
 how many units per layer?
 
 | embedding units | LSTM units | accuracy |
+|---|---|---|
 | 50 | 50 | 24.99% |
 | 60 | 60 | 25.15% |
 | 70 | 70 | 24.97% |
@@ -379,6 +383,7 @@ how many units per layer?
 how many layers ? Tested with 60 units layers
 
 |number of layers| accuracy |
+|---|---|
 | 1 | 25.15% |
 | 2 | 24.58% |
 
@@ -399,6 +404,7 @@ model <- keras_model( input, output )
 GRU's are similar too but less complex than LSTM's which makes them twice as fast. 
 
 | amount of layers | embedding units | GRU units | accuracy |
+|---|---|---|---|
 | 1 | 60 | 60 | 24.88% |
 | 1 | 70 | 60 | 25.01% |
 | 1 | 80 | 70 | 25% |
@@ -438,6 +444,7 @@ model <- keras_model( input, output )
 ```
 
 | number of words | embedding units | GRU units | minutes / epoch | #epochs to over fit | accuracy|
+|---|---|---|---|---|---|
 | 20000 | 64 | 64 | 8.5 | 7 | 26.75% |
 | 20000 | 128 | 128 | 8.5 | 4 | 27.29% |
 | 10000 | 128 | 128 | 7.8 | 6 | 27.25% |
@@ -763,6 +770,7 @@ text_vectorization %>% adapt( tweetDT$V2 )
 GPU memory cant handle bigger model nor the full data set so the dev set is used here.
 
 | n-gram | input size | dense layer size | gru layer size | seconds / epoch | # epochs | accuracy|
+|---|---|---|---|---|---|---|
 | 3 | 100 | 192 | 192 | / | 5 | 24.35% |
 | 3 | 100 | 222 | 222 | 380 | 6 | 24.59% |
 | 3 | 100 | 128 | 128,128 | 560 | 10 | 24.57% |
@@ -772,7 +780,7 @@ GPU memory cant handle bigger model nor the full data set so the dev set is used
 
 Another option would be to encode the 3-grams as one hot (or dummy variables).
 
-Here we demonstrate a proof of concept but the entire data set would generate a sparse 0-1 matrix of `nrow(tweetDT)` x ~17000 dimensions, which my computer couldn't handle at all.
+Here we demonstrate a proof of concept but the entire data set would generate a sparse 0-1 matrix of `nrow(tweetDT)` x 16,625 dimensions, which my computer couldn't handle at all.
 
 Even a one hot matrix of 10,000 tweets is 379 MB with a sparse representation of 5.8 MB
 
@@ -845,11 +853,26 @@ history <- model %>% fit(
 ) 
 ```
 
+## conclusion
 
+The goal of this project was to predict an emoji based on text from a tweet.
 
+The initial goal was to reach an accuracy of 33%, the highest accuracy we achieved was 27.82%, this means that the official criterion has not been met. 
 
+We have to take into account that there are 49 different outcomes so the random guess would achieve a mere 2%.
 
+The most effective way of encoding the text data was the Tensorflow Text Vectorization layer.
 
+We also looked at character 3-grams to be one hot encoded, 
+since this is an accurate binary representation of text data which neural networks prefer.
+
+Another advantage of character n-grams is that the total vocabulary is reduced from 613,993 different words to 16,625 different 3-grams. 
+
+The problem with one hot encoding of these 3-grams is that we get a matrix of 6.1 million x 16,625 dimensions which is to large for my computer memory, even in a sparse representation. 
+
+This obstacle could be overcome in future projects by partially loading and constructing the matrix.
+
+We found that GRU networks are the best architecture for this particular problem. We get the advantage of reccurenct neural networks without the complexity of LSTM's. 
 
 
 
