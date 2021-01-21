@@ -50,7 +50,7 @@ This set was used for most of the development of this notebook.
 
 This set contains 1.3 million tweets
 
-```{r load-dev-dataset, eval=TRUE}
+```{r load-dev-dataset, eval=FALSE}
 tweetDT <- fread("dev.gz")
 ```
 
@@ -62,8 +62,8 @@ The data was already split into a training and a test set but this is unpractica
 
 so it is added together and splitted later.
 
-```{r load-full-dataset, eval=FALSE}
-tweetDT <- rbind( fread("./data/train.tsv"), fread("./data/test.tsv") )
+```{r load-full-dataset, eval=TRUE}
+tweetDT <- rbind( fread("./data/train.gz"), fread("./data/test.gz") )
 ```
 
 ## prepare the data
@@ -124,7 +124,6 @@ It is useful for observing the effect of stemming which reduces the total amount
 
 ```{r word-count}
 text_as_list_of_words %>% unlist %>% unique %>% length
-#rm(text_as_list_of_words)
 ```
 
 ### emoji count
@@ -215,7 +214,14 @@ since this is a built-in TensorFlow function we can use the standard keras embed
 
 the size of 10,000 was experimentally chosen to be the most effective amount for accuracy/ computation.
 
-```{r adapt-text-vectorization-layer ,include=FALSE}
+Because this is a rather intensive computation, 
+
+we could try to load the text vectorization object from file but RDS doesn't work because it is a Tensorflow Tensor and
+
+Tensorflow sessions in R are a bit finicky.
+
+
+```{r adapt-text-vectorization-layer ,include=TRUE}
 num_words <- 10000
 max_length <- 20
 text_vectorization <- layer_text_vectorization(
@@ -223,6 +229,7 @@ text_vectorization <- layer_text_vectorization(
   output_sequence_length = max_length, 
 )
 text_vectorization %>% adapt(tweetDT$text)
+ 
 ```
 
 #### compare max_length variations
@@ -348,7 +355,7 @@ how many units per layer? Tested with an embedding layer and 1 dense layer.
 | 70 | 60 | 24.68% |
 | 80 | 70 | 24.56% |
 
-```{r best-FFA, eval=FALSE}
+```{r best-FFA, eval = FALSE}
 input <- layer_input( shape = c( 1 ), dtype = "string" )
 
 output <- input %>% 
@@ -387,7 +394,7 @@ how many layers ? Tested with 60 units layers
 | 1 | 25.15% |
 | 2 | 24.58% |
 
-```{r LSTM, eval=FALSE,warning=FALSE}
+```{r LSTM, eval = FALSE, warning = FALSE}
 input <- layer_input( shape = c( 1 ), dtype = "string" )
 
 output <- input %>% 
@@ -418,7 +425,7 @@ With recurrent dropout one epoch takes 9 minutes with an accuracy of 26.15% afte
 
 Without recurrent dropout one epoch takes 6.5 minutes with an accuracy of 26.78% after 11 epochs.
 
-```{r first-GRU, eval=FALSE}
+```{r first-GRU, eval = FALSE}
 input <- layer_input( shape = c( 1 ), dtype = "string" )
 
 output <- input %>% 
@@ -430,7 +437,7 @@ output <- input %>%
 model <- keras_model( input, output )
 ```
 
-```{r best-one-layer-GRU, eval=FALSE}
+```{r best-one-layer-GRU, eval = FALSE}
 input <- layer_input( shape = c( 1 ), dtype = "string" )
 
 output <- input %>% 
@@ -457,7 +464,7 @@ model <- keras_model( input, output )
 | 10000 | 192 | 192, 128(dense)| 9.3 | 7 | 27.26 % |
 | 10000 | 192 | 192(dense), 192| 10.5 | +15 | 27.82% |
 
-```{r best-GRU-model, message=TRUE, warning=FALSE}
+```{r best-GRU-model, warning = FALSE}
 input <- layer_input( shape = c( 1 ), dtype = "string" )
 
 output <- input %>% 
@@ -527,19 +534,34 @@ The batch size is 1660 because that is how many CUDA cores my GPU has.
 
 When training on computers without dedicated NVIDIA GPU's, a batch size of 512 is recommended.
 
-```{r training}
-history <- model %>% fit(
+Try to load model from file, when that fails or the model doesn't exist, train a new model.
+
+```{r training, include=FALSE}
+
+train <- function() {
+  history <- model %>% fit(
   training$text,
   oh_train,
   epochs = 10,
   batch_size = 1660, 
   validation_split = 0.2,
   verbose=2
-) 
+  ) 
+  model %>% save_model_tf( "my_model" )
+  saveRDS(history,'learn-history.rds')
+}
+
+if(file.exists("my_model")){
+  tryCatch( model <- load_model_tf( "my_model" ) , error = function( e ){ train() } )
+  
+}else { train() }
 ```
 
 ```{r plot-training-history}
-plot( history )
+if( exists( 'learn-history.rds' ) ){
+  history <- readRDS( 'learn-history.rds' )
+  plot( history )
+}
 ```
 
 ### evaluate model
@@ -551,20 +573,6 @@ results <- model %>% evaluate( testing$text, oh_test, verbose = 0 )
 results
 ```
 
-### save model
-
-Here you can save the trained model, for possible deployment.
-
-```{r save-model, eval = FALSE}
-model %>% save_model_tf( "my_model" )
-```
-
-### load model
-
-```{r load-model, include=FALSE,eval=FALSE}
-new_model <- load_model_tf( "my_model" )
-```
-
 ## results
 
 ### single prediction
@@ -572,13 +580,15 @@ new_model <- load_model_tf( "my_model" )
 This is a direct application of the model and can also be applied to any piece of text.
 
 ```{r single-prediction }
+
 id <- 9
 prediction1 <- predict( model, testing$text[ id ] )[1,]
 
-any_text <- 'Hello'
-prediction2 <- predict( model, any_text )
+any_text <- 'i like all things'
+prediction2 <- predict( model, any_text,)
 
-print_predictions <- function( prediction ){
+print_predictions <- function( prediction,text,from_test_set){
+  
   amount <-10
   top_val <- prediction[ order( prediction ) ] %>% rev %>% head( amount ) %>% round(3)
   top_ids <- order( prediction ) %>% rev %>% head( amount )
@@ -586,15 +596,19 @@ print_predictions <- function( prediction ){
   top_emoji <- emoji_dict[ top_ids ]
   top_prediction <- cbind( top_emoji, top_val )
 
-  print( paste( "text:", testing$text[ id ] ))
-  print( paste( "true:", testing$emoji[ id ] ))
+  
+  print( paste( "text:", text ))
+  
+  if(from_test_set){
+    print( paste( "true:", testing$emoji[ id ] ))
+  }
+  
   print( top_prediction )
 }
 
-print_predictions( prediction1 )
-print_predictions( prediction2 )
+print_predictions( prediction1,testing$text[ id ],TRUE)
+print_predictions( prediction2,any_text,FALSE)
 ```
-
 
 ## variations
 
@@ -629,6 +643,26 @@ stemmedtext <- stemDocument( tweetDT$text )
 stemmedtext[ sample(10) ]
 ```
 
+## memory cleanup
+
+At this stage I ran in to a lot of memory issues, the objects where just too large.
+
+We will remove some object we don't need anymore and 
+
+continue with a subset of the data to be able to continue this notebook.
+
+```{r memory-cleanup,include=FALSE}
+subset_tenth <- sample.int( nrow(tweetDT), nrow(tweetDT)/10 )
+subset_1k <- sample.int( nrow(tweetDT), 1000 )
+
+tweetDT_subset <- tweetDT[subset_tenth]
+sampleDT <-  tweetDT[subset_1k]
+
+rm(tweetDT)
+rm( text_as_list_of_words)
+gc()
+```
+
 ## n-grams
 
 A different route is to look at n-grams, an n-gram is a contiguous sequence of n items from a given sample of text.
@@ -636,7 +670,7 @@ In this case we use character 3-grams which means that we split the text of an e
 
 We use the quanteda library for the construction of the n-grams
 
-```{r quanteda, include = FALSE}
+```{r quanteda, include = TRUE}
 library(quanteda)
 ```
 
@@ -649,31 +683,44 @@ clean <- function( tweet ){
   return( paste( tweet, collapse=' ') )
 }
 
-gram <- tokens( tweetDT$text, "character") %>% tokens_ngrams( n=3, concatenator='') %>% lapply( clean )
+gram <- tokens( tweetDT_subset$text, "character") %>% tokens_ngrams( n=3, concatenator='') %>% lapply( clean )
 
-tweetDT <- cbind( tweetDT, as.character( gram ))
+tweet_ngram_DT <- cbind( tweetDT_subset, as.character( gram ))[,c(1,3)]
 
-rm( gram )
+rm(gram)
 ```
 
 Analog to the words we examine how many 3-grams there are per tweet, to determine the max length of the text vectorization layer. 
 
 ```{r ngrams-per-tweet}
-tweetDT$V2 %>% strsplit(" ") %>% sapply(length) %>% summary
+text_as_list_of_3grams <- tweet_ngram_DT$V2 %>% strsplit(" ") 
+text_as_list_of_3grams%>% sapply(length) %>% summary
 ```
+
+Here we see that the optimal length of a tweet as a sentence of 3-grams is around 100.
 
 ```{r ngrams-per-tweet-plot}
-tweetDT$V2 %>% strsplit(" ") %>% sapply(length) %>% hist(breaks=162,main="Distribution of ngrams per tweet")
+text_as_list_of_3grams %>% sapply(length) %>% hist(breaks=162,main="Distribution of ngrams per tweet")
 ```
 
-Here we check the amount of ngrams in the data set.
+Here we check the amount of n-grams in the data set.
 
-There are 16625 different 3grams in the dev set.
+There are 16625 different 3-grams in the dev set.
 
-There are 229941 different 4grams in the dev set.
+There are 229941 different 4-grams in the dev set.
 
-```{r amount-of-ngrams}
-tweetDT$V2 %>% strsplit(" ") %>% unlist %>% unique %>% length 
+There are around 16 thousand different 3-grams in the sub set.
+
+Even though the subset contains a mere tenth of the full data set, 
+
+this amount of different 3-grams will not be much more 
+
+since the total amount of possible 3-grams is 17576 (26^3).
+
+```{r amount-of-ngrams, eval = FALSE}
+text_as_list_of_3grams %>% unlist %>% unique %>% length 
+
+rm( text_as_list_of_3grams)
 ```
 
 This would be the appropriate text vectorization layer to be used with 3-grams.
@@ -707,21 +754,21 @@ Here we demonstrate a proof of concept but the entire data set would generate a 
 
 Even a one hot matrix of 10,000 tweets is 379 MB with a sparse representation of 5.8 MB
 
-A one hot matrix of 100,000 tweets is already 5.5 GB dense and computer could not create a sparse representation due to RAM limitations.
+A one hot matrix of 100,000 tweets is already 5.5 GB dense and my computer could not create a sparse representation due to RAM limitations.
 
-```{r ngrams-as-one-hot,eval=FALSE}
-sampleDT = tweetDT[1:10000]
+Since this is merely an illustration, a sample set of 1000 tweets will be used.
 
+```{r ngrams-as-one-hot}
 ngrams <- tokens(sampleDT$text,"character")%>% tokens_ngrams(n=3,concatenator='')
 
-uniquengrams <- ngrams %>% unlist() %>% unique()
+uniquengrams <- ngrams %>% unlist %>% unique
 
 ngrams<-lapply(ngrams,match,table=uniquengrams)
 
 oh<- do.call(rbind, lapply(ngrams, function(i) as.integer(!is.na(match(unique(unlist(ngrams)), i)))))
 ```
 
-```{r sparse-representation,eval=FALSE}
+```{r sparse-representation}
 library(Matrix)
 
 oh_sparse <-Matrix( data=oh, sparse=TRUE )
@@ -729,22 +776,24 @@ oh_sparse <-Matrix( data=oh, sparse=TRUE )
 
 #### machine learning model for 3-gram oh matrix
 
-```{r ngram-data-prepare,eval=FALSE}
+```{r ngram-data-prepare,eval=TRUE}
 emoji_int <- match(sampleDT$emoji, unique(sampleDT$emoji))
 
-one_hot_emoji <- to_categorical(emoji_int)
-one_hot_emoji <- one_hot_emoji[, 2:(emoji_count+1)]
+one_hot_emoji_ngram <- to_categorical(emoji_int)
+one_hot_emoji_ngram <- one_hot_emoji_ngram[, 2:(emoji_count+1)]
+
+one_hot_emoji_ngram <- to_categorical(emoji_int)[, 2:(emoji_count+1)]
 
 training_id <- sample.int( nrow(sampleDT), size = nrow(sampleDT)*0.8 )
 
-ngram_train <- oh[ training_id, ]
-ngram_test <- oh[ -training_id, ]
+oh_training <- oh[ training_id, ]
+oh_testing <- oh[ -training_id, ]
 
-emoji_train <-one_hot_emoji[ training_id, ]
-emoji_test <- one_hot_emoji[ -training_id, ]
+emoji_training_nrgam <-one_hot_emoji_ngram[ training_id, ]
+emoji_testing_ngram <- one_hot_emoji_ngram[ -training_id, ]
 ```
 
-```{r ngram-model,eval=FALSE,include=FALSE}
+```{r ngram-model,eval=TRUE,include=FALSE}
 input <- layer_input( shape = c( ncol(oh) ), dtype = "int32" )
 
 output <- input %>% 
@@ -757,7 +806,7 @@ output <- input %>%
 model <- keras_model( input, output )
 ```
 
-```{r compile-ngram-model,eval=FALSE,include=FALSE}
+```{r compile-ngram-model,eval=TRUE,include=FALSE}
 model %>% compile(
   optimizer = 'adam',
   loss = 'categorical_crossentropy',
@@ -765,15 +814,20 @@ model %>% compile(
 )
 ```
 
-```{r training-ngram, eval=FALSE}
+```{r training-ngram, eval=TRUE,include=FALSE}
 history <- model %>% fit(
-  ngram_train,
-  emoji_train,
+  oh_training,
+  emoji_training_nrgam,
   epochs = 5,
   batch_size = 830, 
   validation_split = 0.1,
   verbose=2
 ) 
+```
+
+```{r evaluate-ngram-model,eval=TRUE}
+results <- model %>% evaluate(oh_testing, emoji_testing_ngram, verbose = 0 )
+results
 ```
 
 ## conclusion
