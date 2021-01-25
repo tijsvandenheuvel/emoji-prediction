@@ -44,16 +44,29 @@ The source .txt data is converted to .tsv files which have been manually compres
 - Then I created R code to construct a model with a 165 tweets set
 - When that model worked (with an accuracy of 18%) I proceeded to fix the pre-processor to convert the entire data set
 
-## read the data 
+## Materials
 
-### dev set 
+This project was made with 
+
+- RStudio v1.3.1093
+- R v4.0.3
+- Python v3.8
+- TensorFlow v2.2.0
+- GPU: GTX 970 
+- RAM: 16GB
+
+## Read the data 
+
+### Dev set 
 
 This set was used for most of the development of this notebook.
+
+This set is included in the project files.
 
 This set contains 1.3 million tweets
 
 ```{r load-dev-dataset, eval=FALSE}
-tweetDT <- fread("dev.gz")
+tweetDT <- fread( "dev.gz" )
 ```
 
 ### Full set
@@ -64,17 +77,22 @@ The data was already split into a training and a test set but this is unpractica
 
 so it is added together and splitted later.
 
+This set is not included in the project files since it is too large.
+
+It can be generated with the _tweet-pre-process.ipynb_ notebook and the source data.
+
 ```{r load-full-dataset, eval=TRUE}
-tweetDT <- rbind( fread("./data/train.gz"), fread("./data/test.gz") )
+tweetDT <- rbind( fread( "./data/train.gz" ), fread( "./data/test.gz" ) )
 ```
 
-## prepare the data
+## Prepare the data
 
-### a sample of the input data
+### A sample of the input data
 
 ```{r raw-input-sample}
-smpl <- sample.int( nrow(tweetDT), 5 )
-tweetDT[smpl]
+set.seed( 369 )
+smpl <- sample.int( nrow( tweetDT ), 5 )
+tweetDT[ smpl ]
 ```
 
 ### Clean the tweet text
@@ -87,17 +105,17 @@ They are removed for simplicity, since we want to focus on the actual words.
 - only keep letters a-z
 
 ```{r tweet-text-cleaning}
-tweetDT[, text := text %>% tolower]
+tweetDT[ , text := text %>% tolower ]
 tweetDT$text <- gsub( '[^a-z]+', ' ', tweetDT$text )
 ```
 
-### a sample of the cleaned tweets
+### A sample of the cleaned tweets
 
 ```{r clean-text-sample}
-tweetDT[smpl]
+tweetDT[ smpl ]
 ``` 
 
-## data exploration
+## Data exploration
 
 Here we examine how many words there are per tweet.
 
@@ -106,15 +124,15 @@ This is important to determine the size of the input layer, which will be a text
 The eventual decided length is 20 words per tweet since most tweets have fewer words and longer tweet size requires more computation.
 
 ```{r tweet-length-summary}
-text_as_list_of_words <- tweetDT$text %>% strsplit(" ") 
-text_as_list_of_words %>% sapply(length) %>% summary
+text_as_list_of_words <- tweetDT$text %>% strsplit( " " ) 
+text_as_list_of_words %>% sapply( length ) %>% summary
 ```
 
 ```{r tweet-length-plot}
-text_as_list_of_words %>% sapply(length) %>% hist( breaks=55, main="Distribution of words per tweet" ) 
+text_as_list_of_words %>% sapply( length ) %>% hist( breaks=55, main="Distribution of words per tweet" ) 
 ```
 
-### total vocabulary size
+### Total vocabulary size
 
 Here we examine the total amount of different words in all the tweets.
 
@@ -122,13 +140,11 @@ We could use this to determine the size of the vocabulary used by the text vecto
 
 This is just an exploratory step.
 
-It is useful for observing the effect of stemming which reduces the total amount of different words from 613,993 words to 529,416
-
 ```{r word-count}
 text_as_list_of_words %>% unlist %>% unique %>% length
 ```
 
-### emoji count
+### Emoji count
 
 Here we count the amount of different emoji's.
 
@@ -139,7 +155,7 @@ emoji_count <- unique( tweetDT$emoji ) %>% length
 emoji_count
 ```
 
-### how many tweets per emoji
+### How many tweets per emoji
 
 In this last exploratory step we look at the distribution of tweets per emoji.
 
@@ -152,9 +168,9 @@ The least popular emoji heavy_check_mark has only 23539 tweets.
 The Median is lower than the Mean, this means that most tweets have fewer emoji's than the average.
 
 ```{r average-amount-of-tweets-per-emoji}
-emoji_freq<-as.data.frame(table(tweetDT$emoji))
+emoji_freq <- as.data.frame( table( tweetDT$emoji ))
 
-emoji_freq$Freq%>%summary
+emoji_freq$Freq %>% summary
 ```
 
 Here we see which tweets exactly are to most and least common.
@@ -164,13 +180,13 @@ This can be referenced when checking the validity of made predictions.
 If the model predicts 'face_with_tears_of_joy' every time it would score an accuracy of 16.37%.
 
 ```{r amount-of-tweets-per-emoji}
-bottom <- emoji_freq$Freq%>%order%>%head(10)
+bottom <- emoji_freq$Freq %>% order %>% head( 10 )
 
-top <- emoji_freq$Freq%>%order%>%rev%>%head(10)
+top <- emoji_freq$Freq %>% order %>% rev %>% head( 10 )
 
-emoji_freq[top,]
+emoji_freq[ top, ]
 
-emoji_freq[bottom,]
+emoji_freq[ bottom, ]
 ```
 Here we see that some emoji's have a lot more tweets, but most emoji's have a proportionate amount
 
@@ -191,13 +207,13 @@ The output is the emoji from that tweet.
 A neural network takes in tensors and not text so the data needed to be prepared.
 
 ```{r tensorflow-setup, message=FALSE}
-library(keras)
-library(dplyr)
-library(ggplot2)
-library(purrr)
+library( keras )
+library( dplyr )
+library( ggplot2 )
+library( purrr )
 ```
 
-### prepare the input data
+### Preparing the input data
 
 To encode the text data into a tensor we use the TensorFlow text vectorization layer.
 
@@ -226,18 +242,19 @@ Tensorflow sessions in R are a bit finicky.
 ```{r adapt-text-vectorization-layer, warning=FALSE, message=FALSE}
 num_words <- 10000
 max_length <- 20
+
 text_vectorization <- layer_text_vectorization(
   max_tokens = num_words, 
   output_sequence_length = max_length, 
 )
-text_vectorization %>% adapt(tweetDT$text)
+text_vectorization %>% adapt( tweetDT$text )
  
 ```
 
-#### compare max_length variations
+#### Comparing max tweet length variations
 
 - amount of words: 10000
-- model size: 192(input),192(dense),192(gru)
+- model size: 192(input),192(dense),192(GRU)
 - 20 epochs
 
 |max_length | minutes/epoch | accuracy|
@@ -246,19 +263,19 @@ text_vectorization %>% adapt(tweetDT$text)
 |25|7.6|27.91|
 |20|6.3|27.85|
 
-#### text vectorization insight
+#### Text vectorization insight
 
 Here is shown how the text vectorization layer transforms the input
 
 ```{r text-vectorization-input-transformation}
-example_id <- sample.int( nrow(tweetDT), 1 )
+example_id <- sample.int( nrow( tweetDT ), 1 )
 
-tweetDT$text[example_id]
+tweetDT$text[ example_id ]
 
-text_vectorization(matrix(tweetDT$text[example_id], ncol = 1))
+text_vectorization( matrix( tweetDT$text[ example_id ], ncol = 1))
 ```
 
-### prepare the output data
+### Preparing the output data
 
 The emojis also have to be encoded as a tensor.
 
@@ -273,32 +290,34 @@ The first column is entirely empty so we remove it.
 Create an emoji dictionary to find which number maps to which emoji after prediction.
 
 ```{r vectorize-emoji-as-one-hot}
-emoji_int <- match(tweetDT$emoji, unique(tweetDT$emoji))
+emoji_int <- match( tweetDT$emoji, unique( tweetDT$emoji ))
 
-one_hot_emoji <- to_categorical(emoji_int)
-one_hot_emoji <- one_hot_emoji[, 2:(emoji_count+1)]
+one_hot_emoji <- to_categorical( emoji_int )
+one_hot_emoji <- one_hot_emoji[ , 2:( emoji_count+1 )]
 
 emoji_dict <- tweetDT$emoji %>% unique
 ```
 
-### split the dataset into training & testing
+### Splitting the dataset into training & testing
 
 Here we split the data in to a training and testing set.
 
 The division is 80% training and 20% testing, and is arbitrarily chosen.
 
 ```{r split-data-in-test-and-training-set}
-training_id <- sample.int( nrow(tweetDT), size = nrow(tweetDT)*0.8 )
+training_id <- sample.int( nrow( tweetDT ), size = nrow( tweetDT ) * 0.8 )
+
 training <- tweetDT[ training_id, ]
 testing <- tweetDT[ -training_id, ]
+
 oh_train <-one_hot_emoji[ training_id, ]
 oh_test <- one_hot_emoji[ -training_id, ]
 
-nrow(training)
-nrow(testing)
+nrow( training )
+nrow( testing )
 ```
 
-### design the model
+### Designing the model
 
 In the design of the model we have to answer a couple of questions.
 
@@ -307,7 +326,7 @@ In the design of the model we have to answer a couple of questions.
 - what types of building blocks?
 - what type of architecture?
 
-#### model 1 FFA
+#### Model 1 FFA
 
 I started with the model from the tutorial, added an extra dense layer of size 16, tried bigger layers of size 32 and 50, tried more layers, up to 5.
 
@@ -375,7 +394,7 @@ output <- input %>%
 model <- keras_model( input, output )
 ```
 
-#### model 2 LSTM
+#### Model 2 LSTM
 
 Because tweets consist of a sequence of words we can apply recurrent neural network methods.
 
@@ -414,7 +433,7 @@ output <- input %>%
 model <- keras_model( input, output )
 ```
 
-#### model 3 GRU
+#### Model 3 GRU
 
 GRU's are similar too but less complex than LSTM's which makes them, in this case, twice as fast. 
 
@@ -509,7 +528,7 @@ output <- input %>%
 model <- keras_model( input, output )
 ```
  
-#### model 4 bidirectional GRU
+#### Model 4 bidirectional GRU
 
 Bidirectional GRU's connect two hidden layers of opposite directions to the same output.
 
@@ -523,7 +542,7 @@ The results have no improvement and are much slower.
 - over fits in 5 epochs
 - accuracy 27.27%
 
-```{r bidirctional-GRU, eval=FALSE}
+```{r bidirectional-GRU, eval=FALSE}
 input <- layer_input( shape = c( 1 ), dtype = "string" )
 
 output <- input %>% 
@@ -536,7 +555,7 @@ output <- input %>%
 model <- keras_model( input, output )
 ```
 
-### compile the model 
+### Compiling the model 
 
 Before training, a model needs to be compiled with an optimizer and loss function.
 
@@ -550,7 +569,7 @@ model %>% compile(
 )
 ```
 
-### Train the model
+### Training the model
 
 Here we train the model. 
 
@@ -578,11 +597,12 @@ train <- function() {
   validation_split = 0.2,
   verbose=2
   ) 
+  
   model %>% save_model_tf( "files/my_model" )
-  saveRDS(history,'files/learn-history.rds')
+  saveRDS( history, 'files/learn-history.rds' )
 }
 
-if(file.exists("files/my_model")){
+if( file.exists( "files/my_model" )){
   tryCatch( model <- load_model_tf( "files/my_model" ) , error = function( e ){ train() } )
   
 }else { train() }
@@ -595,24 +615,25 @@ if( file.exists( 'files/learn-history.rds' ) ){
 }
 ```
 
-### evaluate model
+### Evaluating the model
 
 Here we evaluate the model by calculating the accuracy on the test set.
 
 ```{r evaluate-model}
 if( file.exists( 'files/evaluation.rds' ) ){
   results <- readRDS( 'files/evaluation.rds' )
-  print(results)
+  print( results )
+  
 }else{
   results <- model %>% evaluate( testing$text, oh_test, verbose = 0 )
-  print(results)
-  saveRDS(results,'files/evaluation.rds')
+  print( results )
+  saveRDS( results, 'files/evaluation.rds' )
 }
 ```
 
-## results
+## Results
 
-### single prediction
+### Single prediction
 
 This is a direct application of the model and can also be applied to any piece of text.
 
@@ -622,11 +643,11 @@ id <- 9
 prediction1 <- predict( model, testing$text[ id ] )[1,]
 
 any_text <- 'i like all things'
-prediction2 <- predict( model, any_text,)
+prediction2 <- predict( model, any_text )
 
-print_predictions <- function( prediction,text,from_test_set){
+print_predictions <- function( prediction, text, from_test_set ){
   
-  amount <-10
+  amount <- 10
   top_val <- prediction[ order( prediction ) ] %>% rev %>% head( amount ) %>% round(3)
   top_ids <- order( prediction ) %>% rev %>% head( amount )
 
@@ -636,22 +657,24 @@ print_predictions <- function( prediction,text,from_test_set){
   
   print( paste( "text:", text ))
   
-  if(from_test_set){
+  if( from_test_set ){
     print( paste( "true:", testing$emoji[ id ] ))
   }
   
   print( top_prediction )
 }
 
-print_predictions( prediction1,testing$text[ id ],TRUE)
-print_predictions( prediction2,any_text,FALSE)
+print_predictions( prediction1, testing$text[ id ], TRUE )
+print_predictions( prediction2, any_text, FALSE )
 ```
 
-## variations
+## Variations
 
-### check effect of stemming
+### Checking the effect of stemming
 
 Let's try stemming as a technique to reduce the total amount of different words.
+
+Stemming reduces the total amount of different words from 613,993 words to 529,416.
 
 This would mean that the information in the 10,000 words of the text vectorization layer is more dense.
 
@@ -672,7 +695,7 @@ With stemming, the model takes 9.8 minutes per epoch to reach an accuracy  of 27
 There is no improvement in accuracy but it computes a little faster.
 
 ```{r apply-stemmer}
-library(tm)
+library( tm )
 
 smpl_to_stem <- sample.int( nrow( tweetDT ), 10 )
 tweetDT_smpl <- tweetDT[ smpl_to_stem, ]
@@ -684,7 +707,7 @@ stemmedtext <- stemDocument( tweetDT_smpl$text )
 print( stemmedtext )
 ```
 
-## memory cleanup
+## Memory cleanup
 
 At this stage I ran in to a lot of memory issues, the objects where just too large.
 
@@ -705,11 +728,11 @@ rm( training )
 rm( text_as_list_of_words )
 rm( tweetDT_smpl )
 rm( stemmedtext )
-rm( text_vectorization)
+rm( text_vectorization )
 invisible( gc() )
 ```
 
-## n-grams
+## Character n-grams
 
 A different route is to look at n-grams, an n-gram is a contiguous sequence of n items from a given sample of text.
 In this case we use character 3-grams which means that we split the text of an emoji in sequences of three characters.
@@ -720,20 +743,20 @@ We use the quanteda library for the construction of the n-grams
 library( quanteda )
 ```
 
-### tweet text as list of ngrams instead of list of words
+### Tweet text as list of ngrams instead of list of words
 
 Here we keep a sentence structure but with 3-grams instead of words, to be used with the text_vectorization layer. 
 
 ```{r ngrams-as-a-string}
 clean <- function( tweet ){
-  return( paste( tweet, collapse=' ') )
+  return( paste( tweet, collapse=' '))
 }
 
-gram <- tokens( tweetDT_subset$text, "character") %>% 
-  tokens_ngrams( n=3, concatenator='') %>% 
+gram <- tokens( tweetDT_subset$text, "character" ) %>% 
+  tokens_ngrams( n=3, concatenator='' ) %>% 
   lapply( clean )
 
-tweet_ngram_DT <- cbind( tweetDT_subset, as.character( gram ) )[ ,c(1, 3) ]
+tweet_ngram_DT <- cbind( tweetDT_subset, as.character( gram ))[ ,c(1, 3) ]
 
 rm( gram )
 ```
@@ -742,13 +765,13 @@ Analog to the words we examine how many 3-grams there are per tweet, to determin
 
 ```{r ngrams-per-tweet}
 text_as_list_of_3grams <- tweet_ngram_DT$V2 %>% strsplit(" ") 
-text_as_list_of_3grams %>% sapply(length) %>% summary
+text_as_list_of_3grams %>% sapply( length ) %>% summary
 ```
 
 Here we see that the optimal length of a tweet as a sentence of 3-grams is around 100.
 
 ```{r ngrams-per-tweet-plot}
-text_as_list_of_3grams %>% sapply(length) %>% hist(breaks=162,main="Distribution of ngrams per tweet")
+text_as_list_of_3grams %>% sapply( length ) %>% hist( breaks=162, main="Distribution of ngrams per tweet" )
 ```
 
 Here we check the amount of n-grams in the data set.
@@ -783,7 +806,7 @@ text_vectorization <- layer_text_vectorization(
 text_vectorization %>% adapt( tweetDT$V2 )
 ```
 
-#### model results
+#### Model results
 
 GPU memory cant handle bigger model nor the full data set so the dev set is used here.
 
@@ -814,7 +837,7 @@ uniquengrams <- ngrams %>% unlist %>% unique
 
 ngrams <- lapply( ngrams, match, table = uniquengrams )
 
-oh <- do.call( rbind, lapply( ngrams, function(i) X = as.integer( !is.na( match( unique( unlist( ngrams )), i)))))
+oh <- do.call( rbind, lapply( ngrams, function( i ) X = as.integer( !is.na( match( unique( unlist( ngrams )), i )))))
 ```
 
 ```{r sparse-representation}
@@ -823,7 +846,9 @@ library(Matrix)
 oh_sparse <- Matrix( data=oh, sparse=TRUE )
 ```
 
-#### machine learning model for 3-gram oh matrix
+#### Machine learning model for 3-gram oh matrix
+
+This part describes a workflow of how you could create a model with the 3-grams as a one hot encoded matrix as input.
 
 ```{r ngram-data-prepare,eval=TRUE}
 emoji_int <- match( sampleDT$emoji, unique( sampleDT$emoji ))
@@ -874,12 +899,14 @@ history <- model %>% fit(
 ) 
 ```
 
+These results are not important and are just a proof of concept.
+
 ```{r evaluate-ngram-model,eval=TRUE}
 results <- model %>% evaluate( oh_testing, emoji_testing_ngram, verbose = 0 )
 results
 ```
 
-## conclusion
+## Conclusion
 
 The goal of this project was to predict an emoji based on text from a tweet.
 
@@ -898,8 +925,11 @@ The problem with one hot encoding of these 3-grams is that we get a matrix of 6.
 
 This obstacle could be overcome in future projects by partially loading and constructing the matrix.
 
-We found that GRU networks are the best architecture for this particular problem. We get the advantage of reccurenct neural networks without the complexity of LSTM's. 
+We found that GRU networks are the best architecture for this particular problem. We get the advantage of recurrent neural networks without the complexity of LSTM's. 
 
+The model can suggest some emojis based on any piece of text, the suggestions seem plausible enough, 
+
+and I learned a ton in this project so I see this as a total win.
 
 
 
